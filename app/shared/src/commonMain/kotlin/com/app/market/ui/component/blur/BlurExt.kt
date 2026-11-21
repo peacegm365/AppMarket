@@ -8,11 +8,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.RectangleShape
 import com.app.market.ui.theme.LocalEnableBlur
+import com.app.market.ui.theme.LocalOpaqueSurface
+import com.app.market.ui.theme.LocalAppBackgroundImage
 import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurColors
 import top.yukonga.miuix.kmp.blur.LayerBackdrop
 import top.yukonga.miuix.kmp.blur.ProgressiveBlur
-import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.material.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.blur.progressiveTextureBlur
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
@@ -27,7 +29,7 @@ fun Modifier.defaultBlurEffect(
     blurRadius = 25f,
     colors = BlurColors(
         blendColors = listOf(
-            BlendColorEntry(color = MiuixTheme.colorScheme.surface.copy(0.8f)),
+            BlendColorEntry(color = LocalOpaqueSurface.current.copy(0.8f)),
         ),
     ),
 )
@@ -71,7 +73,7 @@ fun rememberBlurEnabled(): State<Boolean> {
 @Composable
 fun rememberBlurBackdrop(): LayerBackdrop? {
     if (!rememberBlurEnabled().value || !isRuntimeShaderSupported()) return null
-    val surfaceColor = MiuixTheme.colorScheme.surface
+    val surfaceColor = LocalOpaqueSurface.current
     return rememberLayerBackdrop {
         drawRect(surfaceColor)
         drawContent()
@@ -85,7 +87,7 @@ fun BlurredBar(
     content: @Composable () -> Unit,
 ) {
     Box(
-        modifier = if (blurActive && backdrop != null) {
+        modifier = if (blurActive && backdrop != null && LocalAppBackgroundImage.current == null) {
             Modifier.defaultBlurEffect(backdrop)
         } else {
             Modifier

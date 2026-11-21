@@ -52,3 +52,17 @@ full-package fallback and patch metadata. `data/androidMain` downloads and verif
 temporary workspace, synthesizes and verifies the complete APK, then streams that APK through the
 same installer/Download outputs used by full-package requests. Split APK updates always use their
 full artifacts.
+
+## Proxy
+
+The proxy feature does not ship a core binary and never opens a local port. `data/androidMain`
+implements the AnyTLS protocol directly: the TLS session authenticates with `sha256(password)`,
+negotiates settings, and multiplexes 7-byte-header frames (`SYN` / `PSH` / `FIN` / `ALERT` ...).
+`TunnelSocketFactory` + `TunnelDns` are installed on the shared OkHttp/Ktor clients, so traffic that
+matches `ProxyDecision` is tunnelled, everything else connects directly. `AndroidAnyTlsProxyController`
+implements the platform-neutral `ClashCoreController` contract (`start` / `refreshNodes` /
+`selectNode` / `testDelays`) and also publishes node latency plus a `timeouts` set so the UI can show
+`超时` for nodes that fail the full handshake within the per-node timeout. Subscription entries that
+encode account metadata (remaining traffic, expiry) are separated into `subscriptionInfo` instead of
+being listed as nodes. The one `vless://...security=reality` entry in a mixed subscription is not
+supported, because REALITY requires uTLS with XTLS Vision.

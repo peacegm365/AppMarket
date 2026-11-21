@@ -1,5 +1,13 @@
 package com.app.market.ui.navigation
-
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -7,52 +15,79 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.app.market.domain.model.market.AppSource
+import com.app.market.domain.model.market.MarketLink
 import com.app.market.domain.model.update.IgnoredUpdate
+import com.app.market.resources.Res
+import com.app.market.resources.later
+import com.app.market.resources.no_change_log
+import com.app.market.resources.update_available_title
+import com.app.market.resources.update_downloading
+import com.app.market.resources.update_now
+import com.app.market.ui.component.AppTextButton
 import com.app.market.ui.screen.AboutScreen
 import com.app.market.ui.screen.AppDetailScreen
 import com.app.market.ui.screen.DeviceProfileScreen
 import com.app.market.ui.screen.DownloadingAppsScreen
+import com.app.market.ui.screen.SearchTab
 import com.app.market.ui.screen.HistoricalVersionsScreen
 import com.app.market.ui.screen.IgnoredAppsScreen
 import com.app.market.ui.screen.InstallerSettingsScreen
-import com.app.market.ui.screen.ManualUpdateScreen
+import com.app.market.ui.screen.MultiThreadSettingsScreen
 import com.app.market.ui.screen.SavedPackagesScreen
+import com.app.market.ui.screen.ProxySettingsScreen
+import com.app.market.ui.screen.MiscSettingsScreen
+import com.app.market.ui.screen.TranslationSettingsScreen
+import com.app.market.ui.screen.SettingsCategoryScreen
 import com.app.market.ui.screen.ThemeSettingsScreen
 import com.app.market.ui.screen.TodayArticleScreen
 import com.app.market.ui.screen.UpdateHistoryScreen
+import com.app.market.ui.screen.InstallHistoryScreen
 import com.app.market.viewmodel.AppDetailViewModel
+import com.app.market.viewmodel.CategoryViewModel
 import com.app.market.viewmodel.DeviceProfileViewModel
 import com.app.market.viewmodel.DownloadingAppsViewModel
 import com.app.market.viewmodel.HistoricalVersionsViewModel
 import com.app.market.viewmodel.IgnoredAppsViewModel
 import com.app.market.viewmodel.InstallerSettingsViewModel
-import com.app.market.viewmodel.ManualUpdateViewModel
 import com.app.market.viewmodel.SavedPackagesViewModel
 import com.app.market.viewmodel.SearchViewModel
 import com.app.market.viewmodel.ThemeSettingsViewModel
 import com.app.market.viewmodel.TodayViewModel
 import com.app.market.viewmodel.UpdateHistoryViewModel
+import com.app.market.viewmodel.InstallHistoryViewModel
 import com.app.market.viewmodel.UpdatesViewModel
+import org.jetbrains.compose.resources.stringResource
 import org.koin.compose.viewmodel.koinViewModel
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
+import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.nav.core.NavDisplay
 import top.yukonga.miuix.kmp.nav.core.NavDisplayEffects
 import top.yukonga.miuix.kmp.nav.core.rememberNavBackStack
 import top.yukonga.miuix.kmp.nav.core.rememberNavSystemCornerRadius
 import top.yukonga.miuix.kmp.nav.transition.NavSwipeDirection
+import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
 fun AppNavigation(
-    externalDetailPackageName: String? = null,
+    externalDetailLink: MarketLink? = null,
     externalDetailQuery: String? = null,
-    onExternalDetailConsumed: (String) -> Unit = {},
+    onExternalDetailConsumed: (MarketLink) -> Unit = {},
     externalSearchKeyword: String? = null,
     onExternalSearchConsumed: (String) -> Unit = {},
     externalOpenDownloads: Boolean = false,
     onExternalDownloadsConsumed: () -> Unit = {},
+    externalManualQuery: String? = null,
+    onExternalManualConsumed: (String) -> Unit = {},
 ) {
     val backStack = rememberNavBackStack<Route>(Route.Main)
     val navigator = remember { Navigator(backStack) }
@@ -62,26 +97,19 @@ fun AppNavigation(
     val searchViewModel = koinViewModel<SearchViewModel>()
     val installerSettingsViewModel = koinViewModel<InstallerSettingsViewModel>()
     val todayViewModel = koinViewModel<TodayViewModel>()
+    val categoryViewModel = koinViewModel<CategoryViewModel>()
     val swipeBackDirection = if (LocalLayoutDirection.current == LayoutDirection.Rtl) {
         NavSwipeDirection.RightToLeft
     } else {
         NavSwipeDirection.LeftToRight
     }
 
-    LaunchedEffect(externalDetailPackageName, externalDetailQuery) {
-        val packageName =
-            externalDetailPackageName?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
-        val target = Route.AppDetail(
-            appId = 0L,
-            packageName = packageName,
-            displayName = packageName,
-            externalQuery = externalDetailQuery ?: "id=$packageName",
-        )
-        val current = navigator.current() as? Route.AppDetail
-        if (current?.packageName != packageName || current.externalQuery != target.externalQuery) {
-            navigator.push(target)
-        }
-        onExternalDetailConsumed(packageName)
+    // 提示：自动检查新版本已移除（进入/切页/点通知进入都不再联网），
+    // 只在用户下拉刷新或手动点检查更新时顺带检查（见 UpdatesViewModel.refresh）。
+    LaunchedEffect(externalDetailLink, externalDetailQuery) {
+        val link = externalDetailLink ?: return@LaunchedEffect
+        navigator.openMarketLink(link, externalDetailQuery)
+        onExternalDetailConsumed(link)
     }
 
     // 外部搜索链接：先回主页面，再交由主页面切页执行
@@ -95,12 +123,22 @@ fun AppNavigation(
     LaunchedEffect(externalOpenDownloads) {
         if (!externalOpenDownloads) return@LaunchedEffect
         if (navigator.current() != Route.DownloadingApps) {
+            // 直接打开下载页：先把栈收回到首页，避免叠在详情页/设置页上面
+            // （从通知进来时应看到下载管理，而不是「详情页 → 返回 → 下载页」）
+            navigator.popUntil { it is Route.Main }
             navigator.push(Route.DownloadingApps)
         }
         onExternalDownloadsConsumed()
     }
+    // 系统分享进来的包名：直接打开应用详情
+    LaunchedEffect(externalManualQuery) {
+        val query = externalManualQuery ?: return@LaunchedEffect
+        navigator.openMarketLink(MarketLink(packageName = query, source = null))
+        onExternalManualConsumed(query)
+    }
 
     CompositionLocalProvider(LocalNavigator provides navigator) {
+        ClipboardLinkPrompt(onOpen = { navigator.openMarketLink(it) })
         NavDisplay(
             backStack = backStack,
             onBack = { navigator.pop() },
@@ -117,12 +155,19 @@ fun AppNavigation(
                     searchViewModel = searchViewModel,
                     installerSettingsViewModel = installerSettingsViewModel,
                     todayViewModel = todayViewModel,
+                    categoryViewModel = categoryViewModel,
+                    downloadViewModel = koinViewModel<DownloadingAppsViewModel>(),
                     pendingSearchKeyword = pendingSearchKeyword,
                     onPendingSearchConsumed = { pendingSearchKeyword = null },
                 )
             }
             entry<Route.AppDetail>(swipeDismiss = swipeBackDirection) { route ->
                 val vm = koinViewModel<AppDetailViewModel>()
+                LaunchedEffect(vm, route.packageName) {
+                    vm.uiState.collect { state ->
+                        state.detail?.app?.let { categoryViewModel.syncRepositoryDetail(route.packageName, it) }
+                    }
+                }
                 AppDetailScreen(
                     viewModel = vm,
                     appId = route.appId,
@@ -187,15 +232,16 @@ fun AppNavigation(
                 IgnoredAppsScreen(
                     viewModel = vm,
                     onOpenDetail = {
-                        val activeSource = updatesViewModel.updateSource.value
+                        val activeSource = updatesViewModel.updateSources.value.firstOrNull()
+                            ?: AppSource.DefaultUpdateSource
                         navigator.push(ignoredDetailRoute(it, activeSource))
                     },
                     onBack = { navigator.pop() },
                 )
             }
-            entry<Route.ManualUpdate>(swipeDismiss = swipeBackDirection) {
-                val vm = koinViewModel<ManualUpdateViewModel>()
-                ManualUpdateScreen(
+            entry<Route.InstallHistory>(swipeDismiss = swipeBackDirection) {
+                val vm = koinViewModel<InstallHistoryViewModel>()
+                InstallHistoryScreen(
                     viewModel = vm,
                     onOpenDetail = {
                         navigator.push(
@@ -203,7 +249,9 @@ fun AppNavigation(
                                 it.appId,
                                 it.packageName,
                                 it.displayName,
-                                source = it.source,
+                                source = it.source
+                                    ?: updatesViewModel.updateSources.value.firstOrNull()
+                                    ?: AppSource.DefaultUpdateSource,
                             )
                         )
                     },
@@ -221,7 +269,8 @@ fun AppNavigation(
                                 it.packageName,
                                 it.displayName,
                                 source = it.source
-                                    ?: updatesViewModel.updateSource.value,
+                                    ?: updatesViewModel.updateSources.value.firstOrNull()
+                                    ?: AppSource.DefaultUpdateSource,
                             )
                         )
                     },
@@ -255,21 +304,76 @@ fun AppNavigation(
                     onBack = { navigator.pop() },
                 )
             }
+            entry<Route.Search>(swipeDismiss = swipeBackDirection) {
+                SearchTab(
+                    viewModel = searchViewModel,
+                    updatesViewModel = updatesViewModel,
+                    bottomPadding = 0.dp,
+                    onOpenDetail = {
+                        navigator.push(
+                            Route.AppDetail(
+                                it.appId,
+                                it.packageName,
+                                it.displayName,
+                                source = it.source,
+                            ),
+                        )
+                    },
+                    isCurrentPage = true,
+                )
+            }
             entry<Route.InstallerSettings>(swipeDismiss = swipeBackDirection) {
                 InstallerSettingsScreen(installerSettingsViewModel, onBack = { navigator.pop() })
             }
+            entry<Route.MultiThreadSettings>(swipeDismiss = swipeBackDirection) {
+                MultiThreadSettingsScreen(installerSettingsViewModel, onBack = { navigator.pop() })
+            }
             entry<Route.About>(swipeDismiss = swipeBackDirection) {
                 val uriHandler = LocalUriHandler.current
-                AboutScreen(onBack = { navigator.pop() }, onOpenUrl = { uriHandler.openUri(it) })
+                AboutScreen(
+                    onBack = { navigator.pop() },
+                    onOpenUrl = { uriHandler.openUri(it) },
+                )
             }
             entry<Route.ThemeSettings>(swipeDismiss = swipeBackDirection) {
                 val vm = koinViewModel<ThemeSettingsViewModel>()
                 ThemeSettingsScreen(vm, onBack = { navigator.pop() })
             }
+            entry<Route.ProxySettings>(swipeDismiss = swipeBackDirection) {
+                ProxySettingsScreen(onBack = { navigator.pop() })
+            }
+            entry<Route.MiscSettings>(swipeDismiss = swipeBackDirection) {
+                MiscSettingsScreen(onBack = { navigator.pop() }, updatesViewModel = updatesViewModel)
+            }
+            entry<Route.TranslationSettings>(swipeDismiss = swipeBackDirection) {
+                TranslationSettingsScreen(onBack = { navigator.pop() })
+            }
+            entry<Route.SettingsCategory>(swipeDismiss = swipeBackDirection) { route ->
+                SettingsCategoryScreen(
+                    category = route.category,
+                    updatesViewModel = updatesViewModel,
+                    installerSettingsViewModel = installerSettingsViewModel,
+                    onBack = { navigator.pop() },
+                    onNavigateIgnored = { navigator.push(Route.IgnoredApps) },
+                    onNavigateMultiThread = { navigator.push(Route.MultiThreadSettings) },
+                    onNavigateUpdateHistory = { navigator.push(Route.UpdateHistory) },
+                    onNavigateInstallHistory = { navigator.push(Route.InstallHistory) },
+                    onNavigateSavedPackages = { navigator.push(Route.SavedPackages) },
+                    onNavigateDownloadingApps = { navigator.push(Route.DownloadingApps) },
+                    onNavigateInstaller = { navigator.push(Route.InstallerSettings) },
+                    onNavigateDeviceProfile = { navigator.push(Route.DeviceProfile) },
+                    onNavigateTheme = { navigator.push(Route.ThemeSettings) },
+                    onNavigateAbout = { navigator.push(Route.About) },
+                    onNavigateProxy = { navigator.push(Route.ProxySettings) },
+                    onNavigateMisc = { navigator.push(Route.MiscSettings) },
+                    onNavigateTranslation = { navigator.push(Route.TranslationSettings) },
+                )
+            }
         }
     }
 }
 
+/** 关于页「检查更新」入口；自更新结果以普通更新行融入更新页（不再弹窗）。 */
 internal fun ignoredDetailRoute(entry: IgnoredUpdate, activeSource: AppSource): Route.AppDetail {
     val sameSource = entry.source == activeSource
     return Route.AppDetail(
@@ -280,3 +384,26 @@ internal fun ignoredDetailRoute(entry: IgnoredUpdate, activeSource: AppSource): 
         source = activeSource,
     )
 }
+
+/**
+ * 打开商店链接对应的详情页：链接指明的来源优先，未指明（通用 market://、Google Play 等）时用小米。
+ * 小米详情沿用链接原有查询参数（含 ref 等），其余来源按包名 / 站内 id 加载。
+ * vivo / OPPO / 三星 / 豌豆荚的详情需要站内 id，只带包名时按包名查不到，改由小米打开。
+ */
+internal fun Navigator.openMarketLink(link: MarketLink, xiaomiQuery: String? = null) {
+    if (link.packageName.isBlank() && link.storeAppId <= 0L) return
+    val source = link.source
+        ?.takeIf { link.storeAppId > 0L || it in PackageResolvableSources }
+        ?: AppSource.XIAOMI
+    val target = Route.AppDetail(
+        appId = link.storeAppId,
+        packageName = link.packageName,
+        displayName = link.packageName,
+        externalQuery = if (source == AppSource.XIAOMI) xiaomiQuery ?: "id=${link.packageName}" else null,
+        source = source,
+    )
+    if (current() != target) push(target)
+}
+
+/** 仅凭包名即可加载详情的来源（已用真实请求验证）。 */
+private val PackageResolvableSources = setOf(AppSource.XIAOMI, AppSource.HUAWEI, AppSource.HONOR, AppSource.TAPTAP)

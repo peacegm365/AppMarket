@@ -18,7 +18,6 @@ internal object MiIslandExtras {
         val title: String,
         val pendingIntent: PendingIntent,
     )
-
     fun build(
         context: Context,
         mode: FocusMode,
@@ -28,6 +27,7 @@ internal object MiIslandExtras {
         float: Boolean,
         appIcon: Bitmap? = null,
         capsuleStatus: String? = null,
+        installing: Boolean = false,
         dismissAfterSeconds: Int? = null,
         actions: List<Action> = emptyList(),
     ): Bundle = when (mode) {
@@ -56,7 +56,16 @@ internal object MiIslandExtras {
                             this.title = (capsuleStatus ?: content).ifEmpty { title }
                         }
                     }
-                    if (percent != null) {
+                    if (installing) {
+                        // 安装中：左边「安装中」，右边应用名。文字不再自己压字数，
+                        // 超长交给系统在岛内滚动（自己截断会剩「安装…」这种半截字）。
+                        imageTextInfoRight {
+                            type = 2
+                            textInfo {
+                                this.title = title
+                            }
+                        }
+                    } else if (percent != null) {
                         progressTextInfo {
                             textInfo {
                                 this.title = percent.toString()

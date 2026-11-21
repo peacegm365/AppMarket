@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -56,36 +57,53 @@ import androidx.navigationevent.NavigationEventInfo
 import androidx.navigationevent.compose.NavigationBackHandler
 import androidx.navigationevent.compose.rememberNavigationEventState
 import com.app.market.domain.model.download.DownloadState
+import com.app.market.domain.model.market.AppSource
 import com.app.market.domain.model.market.MarketAppInfo
 import com.app.market.resources.Res
 import com.app.market.resources.cancel
 import com.app.market.resources.clear_history
+import com.app.market.resources.confirm
 import com.app.market.resources.nav_search
 import com.app.market.resources.no_results
+import com.app.market.resources.proxy_unreachable
+import com.app.market.resources.proxy_unreachable_hint
+import com.app.market.resources.source_unreachable
 import com.app.market.resources.open
 import com.app.market.resources.reserve
 import com.app.market.resources.search_hint
 import com.app.market.resources.search_history
+import com.app.market.resources.search_sources
 import com.app.market.resources.update
+import com.app.market.resources.update_source
+import com.app.market.resources.update_source_all
 import com.app.market.ui.component.AdaptiveTopAppBar
 import com.app.market.ui.component.AppRow
+import com.app.market.ui.widget.MiuixDropdown
 import com.app.market.ui.component.LoadingBox
 import com.app.market.ui.component.PageVerticalPadding
 import com.app.market.ui.component.blur.BlurredBar
 import com.app.market.ui.component.blur.rememberBlurBackdrop
 import com.app.market.ui.model.AppActionKind
 import com.app.market.ui.util.installActionText
+import com.app.market.ui.util.appSourceLabel
 import com.app.market.ui.util.rememberIsWideScreen
 import com.app.market.viewmodel.SearchUiState
 import com.app.market.viewmodel.SearchViewModel
+import com.app.market.viewmodel.UpdatesViewModel
 import kotlinx.coroutines.flow.distinctUntilChanged
 import org.jetbrains.compose.resources.stringResource
+import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.DropdownDefaults
+import top.yukonga.miuix.kmp.basic.DropdownEntry
+import top.yukonga.miuix.kmp.basic.DropdownItem
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.InputField
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.preference.WindowDropdownPreference
+import top.yukonga.miuix.kmp.popup.WindowDropdownDialog
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Close
@@ -99,6 +117,7 @@ import kotlin.math.roundToInt
 @Composable
 fun SearchTab(
     viewModel: SearchViewModel,
+    updatesViewModel: UpdatesViewModel,
     bottomPadding: Dp,
     onOpenDetail: (MarketAppInfo) -> Unit,
     isCurrentPage: Boolean = true,
@@ -114,7 +133,11 @@ fun SearchTab(
         snapshotFlow {
             val info = listState.layoutInfo
             val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: -1
-            lastVisible >= 0 && info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 3
+            // 只在「用户正在滚动」时判触底：切页面回来/列表刷新后停在底部不算，避免每次进页面都自动加载下一页
+            listState.isScrollInProgress &&
+                lastVisible >= 0 &&
+                info.totalItemsCount > 0 &&
+                lastVisible >= info.totalItemsCount - 3
         }
             .distinctUntilChanged()
             .collect { atBottom -> if (atBottom) viewModel.loadMore() }
@@ -245,7 +268,21 @@ fun SearchTab(
                 label = "search",
             ) { fullScreenLoading ->
                 if (fullScreenLoading) {
-                    LoadingBox(Modifier.fillMaxSize().padding(contentPadding))
+                    Column(Modifier.fillMaxSize().padding(contentPadding)) {
+                        // 加载中也保留来源切换入口：否则搜索一直加载时按钮永远隐藏，无法换来源
+                        val loadingSourceOptions = AppSource.SearchSourceOptions
+                        val loadingCurrent = state.sources.firstOrNull() ?: AppSource.DefaultUpdateSource
+                        MiuixDropdown(
+                            items = loadingSourceOptions.map { appSourceLabel(it) },
+                            selectedIndex = loadingSourceOptions.indexOf(loadingCurrent).coerceAtLeast(0),
+                            onSelectedIndexChange = { index ->
+                                viewModel.setSearchSources(setOf(loadingSourceOptions[index]))
+                            },
+                        )
+                        Box(Modifier.weight(1f).fillMaxWidth()) {
+                            LoadingBox(Modifier.fillMaxSize())
+                        }
+                    }
                 } else {
                     SearchResultsList(
                         state = state,
@@ -254,6 +291,7 @@ fun SearchTab(
                         contentPadding = contentPadding,
                         scrollBehavior = scrollBehavior,
                         viewModel = viewModel,
+                        updatesViewModel = updatesViewModel,
                         onSearchHistory = { item ->
                             viewModel.searchWith(item)
                             dismissSearchInput()
@@ -284,6 +322,7 @@ private fun SearchResultsList(
     contentPadding: PaddingValues,
     scrollBehavior: ScrollBehavior,
     viewModel: SearchViewModel,
+    updatesViewModel: UpdatesViewModel,
     onSearchHistory: (String) -> Unit,
     onOpenDetail: (MarketAppInfo) -> Unit,
 ) {
@@ -292,26 +331,77 @@ private fun SearchResultsList(
     val openText = stringResource(Res.string.open)
     val reserveText = stringResource(Res.string.reserve)
     val noResults = stringResource(Res.string.no_results)
-    LazyColumn(
-        state = listState,
-        modifier = Modifier
-            .fillMaxSize()
-            .scrollEndHaptic()
-            .overScrollVertical()
-            .nestedScroll(scrollBehavior.nestedScrollConnection),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = contentPadding,
-    ) {
+    val searchSourcesText = stringResource(Res.string.search_sources)
+    val okText = stringResource(Res.string.confirm)
+    // 来源选择下拉（arpcut 同款 MiuixDropdown，粗体文字+上下箭头）
+    val sourceOptions = AppSource.SearchSourceOptions
+    val sourceDropdownItems = sourceOptions.map { appSourceLabel(it) }
+    // 多选时按第一个来源显示；没有选中项时回退到默认来源
+    val currentSource = state.sources.firstOrNull() ?: AppSource.DefaultUpdateSource
+    val selectedSourceIndex = sourceOptions.indexOf(currentSource).coerceAtLeast(0)
+    Box(Modifier.fillMaxSize()) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier
+                .fillMaxSize()
+                .scrollEndHaptic()
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = contentPadding,
+            ) {
+        // 左上角来源选择下拉（arpcut 同款）
+        item(key = "source-dropdown") {
+            MiuixDropdown(
+                items = sourceDropdownItems,
+                selectedIndex = selectedSourceIndex,
+                onSelectedIndexChange = { index ->
+                    val source = sourceOptions[index]
+                    viewModel.setSearchSources(setOf(source))
+                },
+            )
+        }
         // Compact spinner only for a re-search (results present) — a fresh search uses the centered
         // full-screen one; the gate also prevents a stray spinner mid-Crossfade (loading true, no results).
         if (state.loading && state.results.isNotEmpty()) item(key = "loading") { LoadingBox() }
         if (state.errorMessage.isNotEmpty()) {
             item(key = "error") {
-                Text(
-                    state.errorMessage,
-                    color = MiuixTheme.colorScheme.onErrorContainer,
-                    modifier = Modifier.padding(horizontal = 4.dp)
-                )
+                // 网络类异常（超时/域名解析失败/连接被拒等）给友好文案，原始信息保留在下方小字
+                val raw = state.errorMessage
+                val networkIssue = listOf(
+                    "timeout", "timed out", "connect", "unable to resolve", "unknownhost",
+                    "ssl", "connection", "refused", "unreachable", "network",
+                ).any { raw.contains(it, ignoreCase = true) }
+                // 连的是本机代理端口却连不上 → 几乎都是「代理内核没启动 / 端口变了」，
+                // 直接说人话，别让用户对着 Failed to connect 发懵
+                val localProxyPort = Regex("""(?:127\.0\.0\.1|localhost|::1)[:/](\d{2,5})""")
+                    .find(raw)?.groupValues?.getOrNull(1)
+                Column {
+                    Text(
+                        when {
+                            localProxyPort != null -> stringResource(Res.string.proxy_unreachable, localProxyPort)
+                            networkIssue -> stringResource(Res.string.source_unreachable)
+                            else -> raw
+                        },
+                        color = MiuixTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                    )
+                    if (localProxyPort != null) {
+                        Text(
+                            stringResource(Res.string.proxy_unreachable_hint),
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.footnote1,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                        )
+                    } else if (networkIssue) {
+                        Text(
+                            raw,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                            style = MiuixTheme.textStyles.footnote1,
+                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                        )
+                    }
+                }
             }
         } else if (state.showNoResults) {
             item(key = "empty") {
@@ -398,7 +488,8 @@ private fun SearchResultsList(
         }
 
         items(state.results, key = { it.app.packageName }) { item ->
-            val app = item.app
+            val iconOverrides by viewModel.iconOverrides.collectAsStateWithLifecycle()
+            val app = iconOverrides[item.app.packageName]?.let { item.app.copy(icon = it) } ?: item.app
             val packageName = app.packageName
             val downloadState by remember(packageName) {
                 derivedStateOf { downloadStates.value[packageName] }
@@ -427,5 +518,9 @@ private fun SearchResultsList(
         if (state.loadingMore) {
             item(key = "loadmore") { LoadingBox() }
         }
+        }
+
     }
 }
+
+

@@ -9,6 +9,10 @@ internal interface PreferencesDataSource {
 
     suspend fun read(key: StringPreferenceKey): String? = observe(key).first()
     suspend fun read(key: BooleanPreferenceKey): Boolean = observe(key).first()
+
+    /** 未写入过的键返回 null（区别于 [read] 用默认值兑底），用于「首次使用按设备能力给默认值」。 */
+    suspend fun readNullable(key: BooleanPreferenceKey): Boolean? = null
+    suspend fun clearNamespace(namespace: String)
     suspend fun update(namespace: String, changes: PreferenceChanges)
 
     suspend fun put(key: StringPreferenceKey, value: String) =

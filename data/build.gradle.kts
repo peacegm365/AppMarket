@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.androidKotlinMultiplatformLibrary)
     alias(libs.plugins.kotlinMultiplatform)
+    alias(libs.plugins.kotlinSerialization)
 }
 
 kotlin {
@@ -33,6 +34,7 @@ kotlin {
                 implementation(libs.androidx.datastore.preferences)
                 implementation(libs.hiddenapibypass)
                 implementation(libs.rikka.shizuku.api)
+                implementation(libs.dhizuku.api)
                 implementation(libs.rikka.shizuku.provider)
                 implementation(libs.ktor.client.okhttp)
             }

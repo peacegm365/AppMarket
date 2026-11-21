@@ -26,6 +26,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -195,6 +196,114 @@ class StoreMigrationTest {
         assertEquals(listOf(entry.packageName), history.entries.value.map { it.packageName })
         scope.cancel()
     }
+
+    @Test
+    fun legacyCategorySourcesMigrateWhenBothAgree() = runTest {
+        val store = ControlledPreferencesDataSource(eagerDefaults = true)
+        store.emit(UpdatePreferenceKeys.LegacyGameSources, "huawei")
+        store.emit(UpdatePreferenceKeys.LegacyAppSources, "huawei")
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val prefs = UpdatePreferencesRepositoryImpl(store, scope, Json)
+        advanceUntilIdle()
+
+        assertEquals(AppSource.HUAWEI, prefs.categorySource.value)
+        assertEquals("huawei", store.read(UpdatePreferenceKeys.CategorySource))
+        assertNull(store.read(UpdatePreferenceKeys.LegacyGameSources))
+        assertNull(store.read(UpdatePreferenceKeys.LegacyAppSources))
+        scope.cancel()
+    }
+
+    @Test
+    fun legacyCategorySourcesDoNotOverrideExistingCategorySource() = runTest {
+        val store = ControlledPreferencesDataSource(eagerDefaults = true)
+        store.emit(UpdatePreferenceKeys.CategorySource, "taptap")
+        store.emit(UpdatePreferenceKeys.LegacyGameSources, "huawei")
+        store.emit(UpdatePreferenceKeys.LegacyAppSources, "huawei")
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val prefs = UpdatePreferencesRepositoryImpl(store, scope, Json)
+        advanceUntilIdle()
+
+        assertEquals(AppSource.TAPTAP, prefs.categorySource.value)
+        assertEquals("taptap", store.read(UpdatePreferenceKeys.CategorySource))
+        // 已有新值时不得清理旧键，避免误判为已迁移
+        assertEquals("huawei", store.read(UpdatePreferenceKeys.LegacyGameSources))
+        scope.cancel()
+    }
+
+    @Test
+    fun legacyCategorySourcesAbsentKeepDefault() = runTest {
+        val store = ControlledPreferencesDataSource(eagerDefaults = true)
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val prefs = UpdatePreferencesRepositoryImpl(store, scope, Json)
+        advanceUntilIdle()
+
+        assertEquals(AppSource.DefaultCategorySource, prefs.categorySource.value)
+        assertNull(store.read(UpdatePreferenceKeys.CategorySource))
+        scope.cancel()
+    }
+
+    @Test
+    fun legacyCategorySourcesWithBlankOrIllegalValuesKeepDefault() = runTest {
+        val store = ControlledPreferencesDataSource(eagerDefaults = true)
+        store.emit(UpdatePreferenceKeys.LegacyGameSources, "")
+        store.emit(UpdatePreferenceKeys.LegacyAppSources, "not-a-source")
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val prefs = UpdatePreferencesRepositoryImpl(store, scope, Json)
+        advanceUntilIdle()
+
+        assertEquals(AppSource.DefaultCategorySource, prefs.categorySource.value)
+        assertNull(store.read(UpdatePreferenceKeys.CategorySource))
+        scope.cancel()
+    }
+
+    @Test
+    fun legacyCategorySourcesOnlyMigrateOnce() = runTest {
+        val store = ControlledPreferencesDataSource(eagerDefaults = true)
+        store.emit(UpdatePreferenceKeys.LegacyGameSources, "oppo")
+        store.emit(UpdatePreferenceKeys.LegacyAppSources, "oppo")
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        UpdatePreferencesRepositoryImpl(store, scope, Json)
+        advanceUntilIdle()
+
+        // 第二次构造（模拟重启）后旧键已不存在，必须保持既有值而不是回退默认
+        val restarted = UpdatePreferencesRepositoryImpl(store, scope, Json)
+        advanceUntilIdle()
+        assertEquals(AppSource.OPPO, restarted.categorySource.value)
+        assertEquals("oppo", store.read(UpdatePreferenceKeys.CategorySource))
+        scope.cancel()
+    }
+
+    @Test
+    fun conflictingLegacyCategorySourcesAreNotFolded() = runTest {
+        val store = ControlledPreferencesDataSource(eagerDefaults = true)
+        store.emit(UpdatePreferenceKeys.LegacyGameSources, "taptap")
+        store.emit(UpdatePreferenceKeys.LegacyAppSources, "huawei")
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val prefs = UpdatePreferencesRepositoryImpl(store, scope, Json)
+        advanceUntilIdle()
+
+        assertEquals(AppSource.DefaultCategorySource, prefs.categorySource.value)
+        assertNull(store.read(UpdatePreferenceKeys.CategorySource))
+        // 无法无损合并，保留旧键不丢弃用户信息
+        assertEquals("taptap", store.read(UpdatePreferenceKeys.LegacyGameSources))
+        assertEquals("huawei", store.read(UpdatePreferenceKeys.LegacyAppSources))
+        scope.cancel()
+    }
+
+    @Test
+    fun legacyCategorySourceOutsideSupportedSetKeepsDefault() = runTest {
+        val store = ControlledPreferencesDataSource(eagerDefaults = true)
+        store.emit(UpdatePreferenceKeys.LegacyGameSources, "wandoujia")
+        store.emit(UpdatePreferenceKeys.LegacyAppSources, "wandoujia")
+        val scope = CoroutineScope(SupervisorJob() + StandardTestDispatcher(testScheduler))
+        val prefs = UpdatePreferencesRepositoryImpl(store, scope, Json)
+        advanceUntilIdle()
+
+        assertEquals(AppSource.DefaultCategorySource, prefs.categorySource.value)
+        assertNull(store.read(UpdatePreferenceKeys.CategorySource))
+        assertEquals("wandoujia", store.read(UpdatePreferenceKeys.LegacyGameSources))
+        scope.cancel()
+    }
 }
 
 private class RecordingThemePlatformPreferences : ThemePlatformPreferences {
@@ -254,13 +363,12 @@ private class ControlledPreferencesDataSource(
         emit(UpdatePreferenceKeys.RemoveSearchAds, false)
         emit(UpdatePreferenceKeys.FilterQuickGames, false)
         emit(UpdatePreferenceKeys.FilterReservationApps, false)
-        emit(UpdatePreferenceKeys.ShowAppComments, false)
-        emit(UpdatePreferenceKeys.ShowSameDeveloper, false)
-        emit(UpdatePreferenceKeys.ShowPromotions, false)
+        emit(UpdatePreferenceKeys.DetectClipboardLinks, true)
         emit(UpdatePreferenceKeys.StripAppNameSubtitle, false)
         // 空串代表未配置过，回退默认源
         emit(UpdatePreferenceKeys.SearchSources, "")
         emit(UpdatePreferenceKeys.TodaySource, "")
+        emit(UpdatePreferenceKeys.CategorySource, "")
         emit(UpdatePreferenceKeys.UpdateSource, "")
         emit(UpdatePreferenceKeys.PermanentIgnores, "[]")
         emit(UpdatePreferenceKeys.OnceIgnores, "[]")

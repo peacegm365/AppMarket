@@ -9,12 +9,12 @@ internal class RootInstallerBackend(
 ) : InstallerBackend {
     override val mode: InstallerMode = InstallerMode.ROOT
 
-    override suspend fun open(): PackageInstallerAccess {
+    override suspend fun open(installerPackageName: String?): PackageInstallerAccess {
         val bridge = rootBridge.open()
         return try {
             factory.create(
                 wrapBinder = bridge::wrap,
-                callerPackageName = XIAOMI_MARKET_PACKAGE_NAME,
+                callerPackageName = installerPackageName ?: XIAOMI_MARKET_PACKAGE_NAME,
                 closeAction = bridge::close,
             )
         } catch (error: Throwable) {

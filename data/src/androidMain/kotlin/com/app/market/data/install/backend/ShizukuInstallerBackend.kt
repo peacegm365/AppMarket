@@ -17,11 +17,13 @@ internal class ShizukuInstallerBackend(
 ) : InstallerBackend {
     override val mode: InstallerMode = InstallerMode.SHIZUKU
 
-    override suspend fun open(): PackageInstallerAccess {
+    override suspend fun open(installerPackageName: String?): PackageInstallerAccess {
         requirePermission()
         return factory.create(
             wrapBinder = { binder -> ShizukuBinderWrapper(binder) },
-            callerPackageName = XIAOMI_MARKET_PACKAGE_NAME,
+            // 会话归属决定「安装来源」：Google Play 来源的应用会校验 installer,
+            // 因此按来源把会话挂到对应商店名下（Shizuku 以 shell 身份执行，可挂任意已存在包名）
+            callerPackageName = installerPackageName ?: XIAOMI_MARKET_PACKAGE_NAME,
         )
     }
 

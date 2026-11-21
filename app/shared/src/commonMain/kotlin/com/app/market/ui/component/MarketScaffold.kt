@@ -4,6 +4,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
@@ -123,6 +124,7 @@ fun CollapsibleContentTopAppBar(
     color: Color = MiuixTheme.colorScheme.surface,
     navigationIcon: @Composable () -> Unit = {},
     actions: @Composable RowScope.() -> Unit = {},
+    alwaysShowActions: Boolean = false,
     expandedContentBehindToolbar: Boolean = false,
     applyWindowInsets: Boolean = true,
     expandedContent: @Composable () -> Unit,
@@ -195,7 +197,7 @@ fun CollapsibleContentTopAppBar(
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (compactContentVisible) actions()
+                    if (compactContentVisible || alwaysShowActions) actions()
                 }
             }
             Box(
@@ -319,6 +321,7 @@ fun CollapsibleMarketScaffold(
     title: String,
     onBack: () -> Unit,
     actions: @Composable RowScope.() -> Unit = {},
+    alwaysShowActions: Boolean = false,
     expandedContentBehindToolbar: Boolean = false,
     expandedNavigationIconTint: Color = MiuixTheme.colorScheme.onSurface,
     showNavigationIcon: Boolean = true,
@@ -367,6 +370,7 @@ fun CollapsibleMarketScaffold(
                         }
                     },
                     actions = actions,
+                    alwaysShowActions = alwaysShowActions,
                     expandedContentBehindToolbar = expandedContentBehindToolbar,
                     applyWindowInsets = applyWindowInsets,
                     expandedContent = expandedContent,
@@ -451,7 +455,8 @@ fun MainTabScaffold(
     val scrollBehavior = MiuixScrollBehavior()
     val backdrop = rememberBlurBackdrop()
     val blurActive = backdrop != null
-    val barColor = if (blurActive) Color.Transparent else MiuixTheme.colorScheme.surface
+    // 顶栏底色保持不透明：透明 + 模糊会把汇总卡的蓝色进度色块糊进标题区，形成蓝色光晕
+    val barColor = MiuixTheme.colorScheme.surface
 
     Scaffold(
         topBar = {
@@ -604,6 +609,6 @@ fun SectionTitle(
     SmallTitle(
         text = text,
         modifier = modifier,
-        insideMargin = PaddingValues(start = 28.dp, top = topPadding, end = 28.dp, bottom = 8.dp),
+        insideMargin = PaddingValues(start = 16.dp, top = topPadding, end = 16.dp, bottom = 8.dp),
     )
 }

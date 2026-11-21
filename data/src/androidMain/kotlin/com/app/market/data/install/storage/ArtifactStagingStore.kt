@@ -5,7 +5,7 @@ import com.app.market.data.install.InstallPipelineException
 import com.app.market.domain.model.install.InstallFailureCode
 import java.io.File
 
-/** 断点续传暂存区：按任务 id 存放下载中的分片，文件长度即已下载字节数。 */
+/** 断点续传暂存区：按任务 id 存放下载中的产物，分片下载的进度记录在同目录 .segments 状态文件。 */
 internal class ArtifactStagingStore(private val context: Context) {
     private val root: File get() = File(context.filesDir, STAGING_DIRECTORY)
 

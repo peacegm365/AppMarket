@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 酷安图床多为 http 明文（image.coolapk.com 等不支持 https），按主域放行含子域 -->
+<network-security-config>
+    <!-- 信任用户证书：ProxyPin/Charles/mitmproxy 的根证书装在「用户证书」区即可抓包 -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">coolapk.com</domain>
+        <domain includeSubdomains="true">myapp.com</domain>
+        <domain includeSubdomains="true">uc.cn</domain>
+        <domain includeSubdomains="true">9game.cn</domain>
+    </domain-config>
+</network-security-config>

@@ -81,7 +81,9 @@ internal class RootBinderBridge(
             context.packageName,
             token,
         ).joinToString(" ") { shellQuote(it) }
-        return ProcessBuilder("su", "-c", command)
+        // 提权命令可自定义（su / ksud / apatch 等），默认 su
+        val privilegeCommand = com.app.market.data.install.RootPrivilegeCommand.command.ifBlank { "su" }
+        return ProcessBuilder(privilegeCommand, "-c", command)
             .redirectErrorStream(true)
             .start()
             .also { process ->

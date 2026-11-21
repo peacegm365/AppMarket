@@ -19,6 +19,8 @@ data class SourceCapabilities(
     val todayFullCoverOverlay: Boolean,
     /** 是否提供独立的更新检查与更新下载；为 false 的源不出现在更新来源选项中。 */
     val supportsUpdates: Boolean,
+    /** 是否支持历史版本列表与历史版本下载；为 false 时详情页不展示历史版本入口。 */
+    val supportsHistoricalVersions: Boolean = false,
     /** 搜索结果是否带推广标记，并可按设置过滤。 */
     val supportsSearchAdsFilter: Boolean = false,
     /** 搜索结果是否带快应用标记，并可按设置过滤。 */
@@ -29,4 +31,21 @@ data class SourceCapabilities(
     val supportsPromotions: Boolean = false,
     /** 是否能在下载时协商增量补丁；与更新列表是否提前报告大小独立。 */
     val supportsDeltaUpdates: Boolean = reportsDeltaSize,
-)
+) {
+    /** 与 [other] 逐项取并集：任一来源支持即视为支持（设置页按全部选中源的能力并集展示开关）。 */
+    fun merge(other: SourceCapabilities): SourceCapabilities = SourceCapabilities(
+        supportsComments = supportsComments || other.supportsComments,
+        supportsSameDeveloperApps = supportsSameDeveloperApps || other.supportsSameDeveloperApps,
+        prefersOpenLinkLaunch = prefersOpenLinkLaunch || other.prefersOpenLinkLaunch,
+        reportsDeltaSize = reportsDeltaSize || other.reportsDeltaSize,
+        supportsTodayFeed = supportsTodayFeed || other.supportsTodayFeed,
+        todayFullCoverOverlay = todayFullCoverOverlay || other.todayFullCoverOverlay,
+        supportsUpdates = supportsUpdates || other.supportsUpdates,
+        supportsHistoricalVersions = supportsHistoricalVersions || other.supportsHistoricalVersions,
+        supportsSearchAdsFilter = supportsSearchAdsFilter || other.supportsSearchAdsFilter,
+        supportsQuickAppFilter = supportsQuickAppFilter || other.supportsQuickAppFilter,
+        supportsReservationFilter = supportsReservationFilter || other.supportsReservationFilter,
+        supportsPromotions = supportsPromotions || other.supportsPromotions,
+        supportsDeltaUpdates = supportsDeltaUpdates || other.supportsDeltaUpdates,
+    )
+}

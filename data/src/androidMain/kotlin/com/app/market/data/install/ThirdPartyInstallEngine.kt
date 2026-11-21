@@ -1,7 +1,9 @@
 package com.app.market.data.install
 
+import android.content.Context
 import com.app.market.data.install.network.ArtifactSourceReader
 import com.app.market.data.install.platform.ExternalInstallerLauncher
+import com.app.market.data.install.storage.ApkCopySaver
 import com.app.market.data.install.storage.MediaStorePackageStore
 import com.app.market.domain.model.install.InstallEvent
 import com.app.market.domain.model.install.InstallFailureCode
@@ -18,6 +20,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 
 internal class ThirdPartyInstallEngine(
+    private val context: Context,
     private val sourceReader: ArtifactSourceReader,
     private val stagingDownloader: PackageStagingDownloader,
     private val packageStore: MediaStorePackageStore,
@@ -40,6 +43,8 @@ internal class ThirdPartyInstallEngine(
                 val staged = stagingDownloader.stage(request) { completed, total ->
                     send(InstallEvent.Progress(completed, total))
                 }
+                // 「另存应用安装包」：下载一完成就把副本写到用户指定文件夹
+                ApkCopySaver.save(context, request, staged, preferences)
                 val pending = packageStore.createPending(request)
                 pendingPackage = pending
                 request.artifacts.forEachIndexed { index, artifact ->

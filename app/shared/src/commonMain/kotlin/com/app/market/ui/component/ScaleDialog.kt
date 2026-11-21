@@ -30,21 +30,28 @@ fun ScaleDialog(
     onDismissRequest: () -> Unit,
     scaleProvider: () -> Float,
     onScaleChange: (Float) -> Unit,
+    title: String? = null,
+    summary: String? = null,
+    range: IntRange = 80..110,
+    suffix: String = "%",
+    valueFactor: Float = 100f,
+    resetValue: Float? = null,
+    resetLabel: String = "恢复默认",
 ) {
     OverlayDialog(
         show = show,
-        title = stringResource(Res.string.theme_page_scale),
-        summary = stringResource(Res.string.theme_page_scale_range),
+        title = title ?: stringResource(Res.string.theme_page_scale),
+        summary = summary ?: stringResource(Res.string.theme_page_scale_range),
         onDismissRequest = onDismissRequest,
     ) {
-        var text by remember(show) { mutableStateOf((scaleProvider() * 100).toInt().toString()) }
+        var text by remember(show) { mutableStateOf((scaleProvider() * valueFactor).toInt().toString()) }
         TextField(
             modifier = Modifier.padding(bottom = 16.dp),
             value = text,
             maxLines = 1,
             trailingIcon = {
                 Text(
-                    text = "%",
+                    text = suffix,
                     modifier = Modifier.padding(horizontal = 16.dp),
                     color = MiuixTheme.colorScheme.onSurfaceVariantActions,
                 )
@@ -56,8 +63,15 @@ fun ScaleDialog(
         Row(horizontalArrangement = Arrangement.SpaceBetween) {
             AppTextButton(
                 modifier = Modifier.weight(1f),
-                text = stringResource(Res.string.cancel),
-                onClick = onDismissRequest,
+                text = resetValue?.let { resetLabel } ?: stringResource(Res.string.cancel),
+                onClick = {
+                    if (resetValue != null) {
+                        onScaleChange(resetValue)
+                        onDismissRequest()
+                    } else {
+                        onDismissRequest()
+                    }
+                },
             )
             Spacer(Modifier.width(20.dp))
             AppTextButton(
@@ -65,9 +79,9 @@ fun ScaleDialog(
                 text = stringResource(Res.string.confirm),
                 colors = ButtonDefaults.textButtonColorsPrimary(),
                 onClick = {
-                    val value = text.toIntOrNull()?.coerceIn(80, 110)
-                        ?: (scaleProvider() * 100).toInt()
-                    onScaleChange(value / 100f)
+                    val value = text.toIntOrNull()?.coerceIn(range.first, range.last)
+                        ?: (scaleProvider() * valueFactor).toInt()
+                    onScaleChange(value / valueFactor)
                     onDismissRequest()
                 },
             )

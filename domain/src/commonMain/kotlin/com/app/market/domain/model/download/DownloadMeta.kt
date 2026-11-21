@@ -16,4 +16,5 @@ data class DownloadMeta(
     val changeLog: String = "",
     val requestHeaders: Map<String, String> = emptyMap(),
     val source: AppSource = AppSource.XIAOMI,
+    val installedVersionName: String = "",
 )

@@ -45,7 +45,7 @@ internal class DesktopDownloadDataSource(
     override val pendingUserAction: StateFlow<InstallUserAction?> = MutableStateFlow(null)
     private val activeJobs = ConcurrentHashMap<DownloadTaskKey, Job>()
 
-    override fun start(meta: DownloadMeta, installAfterDownload: Boolean) {
+    override fun start(meta: DownloadMeta, installAfterDownload: Boolean, saveUri: String?) {
         val packageName = meta.packageName
         val taskKey = meta.taskKey
         val initialState = DownloadState(

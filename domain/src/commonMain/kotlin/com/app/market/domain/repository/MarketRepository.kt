@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.Flow
 interface MarketRepository {
     suspend fun search(keyword: String, page: Int = 0): SearchPage
 
+    /** Official category listing (`app.mi.com/categotyAllListApi`), no signature required. */
+    suspend fun categoryApps(categoryId: Int, page: Int = 0): SearchPage
+
     /** Loads only the data required to render the detail page's primary content. */
     suspend fun appDetail(appId: Long, packageName: String, externalQuery: String? = null): AppDetail
 
@@ -26,6 +29,8 @@ interface MarketRepository {
     suspend fun sameDeveloperApps(appId: Long): List<MarketAppInfo>
     suspend fun downloadMeta(app: MarketAppInfo, keyword: String): DownloadMeta
     suspend fun downloadUpdateMeta(app: MarketAppInfo): DownloadMeta
+    /** 直接读未对账的缓存（毫秒级），用于首屏秒开；随后再用 loadReconciledCachedUpdates 对账。 */
+    suspend fun loadRawCachedUpdates(): List<MarketAppInfo>
     suspend fun loadReconciledCachedUpdates(): List<MarketAppInfo>
     suspend fun checkManualUpdate(request: ManualUpdateRequest): ManualUpdateResult
     fun checkUpdatesFlow(): Flow<List<MarketAppInfo>>

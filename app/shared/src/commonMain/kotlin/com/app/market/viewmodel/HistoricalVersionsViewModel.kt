@@ -105,6 +105,15 @@ class HistoricalVersionsViewModel(
             .onFailure { uiPlatform.showToast(it.message ?: "Download failed") }
     }
 
+    fun saveAs(version: HistoricalVersion) {
+        viewModelScope.launch {
+            val uri = uiPlatform.pickSaveUri("${version.displayName}-${version.versionName}.apk", "application/vnd.android.package-archive") ?: return@launch
+            runCatchingCancellable { wandoujia.historicalDownloadMeta(version) }
+                .onSuccess { downloads.start(it, installAfterDownload = false, saveUri = uri) }
+                .onFailure { uiPlatform.showToast(it.message ?: "Download failed") }
+        }
+    }
+
     fun pause(version: HistoricalVersion) {
         downloads.cancel(version.packageName, version.versionCode)
     }

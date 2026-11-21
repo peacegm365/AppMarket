@@ -97,6 +97,19 @@ private class FakeMarketSourceRepository : MarketSourceRepository {
     }
 
     override suspend fun search(source: AppSource, keyword: String, page: Int): SearchPage = error("Not used")
+    override suspend fun categoryApps(
+        source: AppSource,
+        category: com.app.market.domain.model.market.AppCategory,
+        subCategory: com.app.market.domain.model.market.AppSubCategory,
+        ranking: com.app.market.domain.model.market.GameRanking,
+        gameSubCategory: com.app.market.domain.model.market.GameSubCategory,
+        optionId: String?,
+        page: Int,
+    ): SearchPage = error("Not used")
+    override suspend fun categoryOptions(
+        source: AppSource,
+        category: com.app.market.domain.model.market.AppCategory,
+    ): List<com.app.market.domain.model.market.CategoryOption> = emptyList()
     override suspend fun appDetail(
         source: AppSource,
         appId: Long,
@@ -122,14 +135,16 @@ private class FakePreferences(
     override val removeSearchAds = MutableStateFlow(false)
     override val filterQuickGames = MutableStateFlow(false)
     override val filterReservationApps = MutableStateFlow(false)
-    override val showAppComments = MutableStateFlow(false)
-    override val showSameDeveloper = MutableStateFlow(false)
-    override val showPromotions = MutableStateFlow(false)
     override val stripAppNameSubtitle = MutableStateFlow(false)
+    override val detectClipboardLinks = MutableStateFlow(false)
     override val homePage = MutableStateFlow(HomePage.TODAY)
     override val searchSources = MutableStateFlow(setOf(AppSource.XIAOMI))
+    override val showUpdateSource = MutableStateFlow(true)
     override val todaySource = MutableStateFlow(today)
-    override val updateSource = MutableStateFlow(AppSource.XIAOMI)
+    override val categorySource = MutableStateFlow(AppSource.XIAOMI)
+    override val appCategorySource = MutableStateFlow(AppSource.XIAOMI)
+    override val gameCategorySource = MutableStateFlow(AppSource.XIAOMI)
+    override val updateSources = MutableStateFlow(setOf(AppSource.XIAOMI))
     override val permanentIgnores: StateFlow<List<IgnoredUpdate>> = MutableStateFlow(emptyList())
     override val onceIgnores: StateFlow<List<IgnoredUpdate>> = MutableStateFlow(emptyList())
 
@@ -149,16 +164,17 @@ private class FakePreferences(
         filterReservationApps.value = value
     }
 
-    override suspend fun setShowAppComments(value: Boolean) {
-        showAppComments.value = value
+
+
+
+    override suspend fun setDetectClipboardLinks(value: Boolean) {
+        detectClipboardLinks.value = value
     }
 
-    override suspend fun setShowSameDeveloper(value: Boolean) {
-        showSameDeveloper.value = value
-    }
-
-    override suspend fun setShowPromotions(value: Boolean) {
-        showPromotions.value = value
+    private var clipboardLink = ""
+    override suspend fun lastClipboardLink(): String = clipboardLink
+    override suspend fun setLastClipboardLink(value: String) {
+        clipboardLink = value
     }
 
     override suspend fun setStripAppNameSubtitle(value: Boolean) {
@@ -172,13 +188,25 @@ private class FakePreferences(
     override suspend fun setSearchSources(value: Set<AppSource>) {
         searchSources.value = value
     }
+    override suspend fun setShowUpdateSource(value: Boolean) {
+        showUpdateSource.value = value
+    }
+    override suspend fun setCategorySource(value: AppSource) {
+        categorySource.value = value
+    }
+    override suspend fun setAppCategorySource(value: AppSource) {
+        appCategorySource.value = value
+    }
+    override suspend fun setGameCategorySource(value: AppSource) {
+        gameCategorySource.value = value
+    }
 
     override suspend fun setTodaySource(value: AppSource) {
         todaySource.value = value
     }
 
-    override suspend fun setUpdateSource(value: AppSource) {
-        updateSource.value = value
+    override suspend fun setUpdateSources(value: Set<AppSource>) {
+        updateSources.value = value
     }
 
     override fun isIgnored(app: MarketAppInfo): Boolean = false

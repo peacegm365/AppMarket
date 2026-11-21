@@ -3,6 +3,7 @@ package com.app.market.ui.util
 import com.app.market.domain.model.market.MarketAppInfo
 import kotlinx.datetime.LocalDate
 import kotlinx.datetime.TimeZone
+import kotlinx.datetime.number
 import kotlinx.datetime.toLocalDateTime
 import kotlinx.datetime.todayIn
 import kotlin.math.round
@@ -16,7 +17,8 @@ fun formatSize(size: Long): String {
     val mb = size / 1024.0 / 1024.0
     val scaledMb = round(mb * 10).toLong()
     if (scaledMb < 10_000) return "${scaledMb / 10}.${scaledMb % 10}MB"
-    val scaledGb = round(mb / 1024 * 10).toLong()
+    // GB 档按「截断」显示，与小米商店一致：1748020KB(1.667GiB) 显示 1.6GB，而不是四舍五入成 1.7GB
+    val scaledGb = (mb / 1024 * 10).toLong()
     return "${scaledGb / 10}.${scaledGb % 10}GB"
 }
 
@@ -62,6 +64,16 @@ fun localDateOf(epochMillis: Long): LocalDate =
 
 @OptIn(ExperimentalTime::class)
 fun currentLocalDate(): LocalDate = Clock.System.todayIn(TimeZone.currentSystemDefault())
+
+/** "2026年11月16日 12:31" 完整日期时间标签（系统时区）。 */
+@OptIn(ExperimentalTime::class)
+fun formatDateTimeFull(epochMillis: Long): String {
+    val dateTime = Instant.fromEpochMilliseconds(epochMillis)
+        .toLocalDateTime(TimeZone.currentSystemDefault())
+    val hour = dateTime.hour.toString().padStart(2, '0')
+    val minute = dateTime.minute.toString().padStart(2, '0')
+    return "${dateTime.year}年${dateTime.month.number}月${dateTime.day}日 $hour:$minute"
+}
 
 /** "HH:mm" 时刻标签（系统时区）。 */
 @OptIn(ExperimentalTime::class)

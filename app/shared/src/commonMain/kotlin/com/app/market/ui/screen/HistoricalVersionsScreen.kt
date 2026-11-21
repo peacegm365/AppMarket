@@ -40,7 +40,6 @@ import com.app.market.resources.historical_versions_title
 import com.app.market.resources.installing_short
 import com.app.market.resources.no_historical_versions
 import com.app.market.resources.retry
-import com.app.market.resources.waiting_install_confirmation
 import com.app.market.ui.component.AppCompactButton
 import com.app.market.ui.component.AppTextButton
 import com.app.market.ui.component.CardSegmentContainer
@@ -206,7 +205,7 @@ private fun HistoricalVersionRow(
             text = when {
                 downloadState?.isComplete == true -> stringResource(Res.string.download_finished)
                 downloadState?.phase == DownloadPhase.AWAITING_USER_ACTION -> {
-                    stringResource(Res.string.waiting_install_confirmation)
+                    stringResource(Res.string.installing_short)
                 }
 
                 downloadState?.phase == DownloadPhase.INSTALLING -> stringResource(Res.string.installing_short)

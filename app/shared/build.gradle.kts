@@ -32,7 +32,9 @@ kotlin {
         commonMain.dependencies {
             implementation(projects.domain)
             api(libs.miuix.ui)
+            implementation(libs.miuix.glass)
             implementation(libs.miuix.blur)
+            implementation(libs.miuix.material)
             implementation(libs.miuix.icons)
             implementation(libs.miuix.preference)
             implementation(libs.miuix.nav)

@@ -21,7 +21,7 @@ internal data class InstallTaskRecord(
     val request: InstallRequest,
     val installAfterDownload: Boolean,
     val phase: DownloadPhase = DownloadPhase.QUEUED,
-    val progress: Int? = null,
+    val progress: Float? = null,
     val savedPackageId: String? = null,
     val sessionId: Int? = null,
     val externalInstallerPackage: String? = null,
@@ -116,7 +116,7 @@ internal class InstallTaskStore(
             request = request,
             installAfterDownload = optBoolean("installAfterDownload", true),
             phase = runCatching { DownloadPhase.valueOf(optString("phase")) }.getOrDefault(DownloadPhase.QUEUED),
-            progress = if (has("progress")) optInt("progress") else null,
+            progress = if (has("progress")) optDouble("progress").toFloat() else null,
             savedPackageId = optString("savedPackageId").takeIf { it.isNotBlank() },
             sessionId = if (has("sessionId")) optInt("sessionId") else null,
             externalInstallerPackage = optString("externalInstallerPackage").takeIf { it.isNotBlank() },
@@ -134,6 +134,9 @@ internal class InstallTaskStore(
         put("saveToDownloads", saveToDownloads)
         sourceSavedPackageId?.let { put("sourceSavedPackageId", it) }
         marketSource?.let { put("marketSource", it.token) }
+        put("changeLog", changeLog)
+        put("apkSize", apkSize)
+        put("installedVersionName", installedVersionName)
         put("artifacts", JSONArray().also { array -> artifacts.forEach { array.put(it.toJson()) } })
     }
 
@@ -158,6 +161,9 @@ internal class InstallTaskStore(
             saveToDownloads = optBoolean("saveToDownloads", true),
             sourceSavedPackageId = optString("sourceSavedPackageId").takeIf { it.isNotBlank() },
             marketSource = AppSource.fromToken(optString("marketSource")),
+            changeLog = optString("changeLog"),
+            apkSize = optLong("apkSize"),
+            installedVersionName = optString("installedVersionName"),
         )
     }
 

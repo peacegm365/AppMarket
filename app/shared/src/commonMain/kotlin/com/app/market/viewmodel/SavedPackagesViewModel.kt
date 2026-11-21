@@ -1,6 +1,7 @@
 package com.app.market.viewmodel
 
 import androidx.lifecycle.ViewModel
+import com.app.market.domain.repository.UpdatePreferencesRepository
 import androidx.lifecycle.viewModelScope
 import com.app.market.domain.model.download.DownloadPhase
 import com.app.market.domain.model.installer.SavedPackage
@@ -25,6 +26,7 @@ class SavedPackagesViewModel(
     private val service: SavedPackageRepository,
     private val downloads: DownloadRepository,
     private val uiPlatform: UiPlatform,
+    private val updatePrefs: UpdatePreferencesRepository,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(SavedPackagesUiState(loading = true))
     val uiState: StateFlow<SavedPackagesUiState> = _uiState.asStateFlow()
@@ -102,6 +104,14 @@ class SavedPackagesViewModel(
                     .onSuccess { packages ->
                         _uiState.update { it.copy(packages = packages) }
                     }
+                // 「自动删除安装包」开启时，装完就删掉保存的安装包
+                if (updatePrefs.autoDeletePackage.value) {
+                    runCatchingCancellable { service.delete(target.id) }
+                    runCatchingCancellable { service.list() }
+                        .onSuccess { packages ->
+                            _uiState.update { it.copy(packages = packages) }
+                        }
+                }
             }
         }
         viewModelScope.launch {

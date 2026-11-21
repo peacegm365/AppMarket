@@ -7,6 +7,8 @@ data class UpdateHistoryEntry(
     val appId: Long,
     val packageName: String,
     val displayName: String,
+    /** 本地真实应用名（显示层按「获取真实应用名」开关即时选用，不持久化）。 */
+    val localLabel: String = "",
     val versionName: String,
     val versionCode: Long,
     val previousVersionName: String,

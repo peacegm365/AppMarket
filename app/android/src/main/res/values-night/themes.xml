@@ -10,7 +10,7 @@
 
     <style name="AppTheme.Starting" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">#101014</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/appmarket_icon</item>
         <item name="postSplashScreenTheme">@style/AppTheme</item>
     </style>
 </resources>

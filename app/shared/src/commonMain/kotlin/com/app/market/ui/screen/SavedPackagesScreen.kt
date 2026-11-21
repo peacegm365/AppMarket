@@ -59,6 +59,7 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import com.app.market.ui.theme.PopupTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 @Composable
@@ -154,7 +155,7 @@ private fun InstallWaitingDialog(
     show: Boolean,
     packageName: String,
 ) {
-    WindowDialog(
+    PopupTheme { WindowDialog(
         show = show,
         title = stringResource(Res.string.installing_short),
         onDismissRequest = {},
@@ -171,7 +172,7 @@ private fun InstallWaitingDialog(
                 color = MiuixTheme.colorScheme.onSurface,
             )
         }
-    }
+    } }
 }
 
 @Composable
@@ -180,7 +181,7 @@ private fun InstallSuccessDialog(
     packageName: String,
     onDismiss: () -> Unit,
 ) {
-    WindowDialog(
+    PopupTheme { WindowDialog(
         show = show,
         title = stringResource(Res.string.install_success_title),
         onDismissRequest = onDismiss,
@@ -199,7 +200,7 @@ private fun InstallSuccessDialog(
                 onClick = onDismiss,
             )
         }
-    }
+    } }
 }
 
 @Composable
@@ -209,7 +210,7 @@ private fun DeleteSavedPackageDialog(
     onDismiss: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    WindowDialog(
+    PopupTheme { WindowDialog(
         show = show,
         title = stringResource(Res.string.delete),
         onDismissRequest = onDismiss,
@@ -234,7 +235,7 @@ private fun DeleteSavedPackageDialog(
                 )
             }
         }
-    }
+    } }
 }
 
 @Composable

@@ -1,5 +1,7 @@
 package com.app.market.data.install.storage
 
+import com.app.market.domain.model.market.AppSource
+
 import com.app.market.data.local.PreferencesDataSource
 import com.app.market.data.local.StringPreferenceKey
 import com.app.market.domain.model.installer.SavedPackage
@@ -56,6 +58,7 @@ internal class SavedPackageIndex(
         put("size", size)
         put("modifiedAt", modifiedAt)
         put("icon", icon)
+        put("source", source?.token ?: "")
         put("artifacts", JSONArray().also { array ->
             artifacts.forEach { artifact ->
                 array.put(JSONObject().apply {
@@ -90,6 +93,7 @@ internal class SavedPackageIndex(
             modifiedAt = optLong("modifiedAt"),
             artifacts = artifacts,
             icon = optString("icon"),
+            source = AppSource.fromToken(optString("source")),
         )
     }
 

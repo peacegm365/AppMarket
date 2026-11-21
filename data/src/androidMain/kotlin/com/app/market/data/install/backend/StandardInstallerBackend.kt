@@ -12,7 +12,7 @@ internal class StandardInstallerBackend(
 ) : InstallerBackend {
     override val mode: InstallerMode = InstallerMode.STANDARD
 
-    override suspend fun open(): PackageInstallerAccess {
+    override suspend fun open(installerPackageName: String?): PackageInstallerAccess {
         val hasPrivilegedPermission =
             context.checkSelfPermission(Manifest.permission.INSTALL_PACKAGES) == PackageManager.PERMISSION_GRANTED
         if (!hasPrivilegedPermission && !context.packageManager.canRequestPackageInstalls()) {

@@ -46,6 +46,20 @@ import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.state.ToggleableState
+import androidx.compose.ui.unit.Dp
+import com.app.market.ui.component.AppButton
+import com.app.market.ui.component.TopRightSelectAllButton
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
+import top.yukonga.miuix.kmp.basic.Checkbox
 
 @Composable
 fun IgnoredAppsScreen(
@@ -54,12 +68,47 @@ fun IgnoredAppsScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val multiSelectMode by viewModel.multiSelect.collectAsStateWithLifecycle()
+    val multiSelected by viewModel.multiSelected.collectAsStateWithLifecycle()
+    // 多选模式只收紧行距，不再整页缩放
+    val rowPadding by animateDpAsState(
+        targetValue = if (multiSelectMode) 10.dp else 16.dp,
+        animationSpec = tween(durationMillis = 260, easing = FastOutSlowInEasing),
+        label = "rowPadding",
+    )
     val permanentTitle = stringResource(Res.string.ignored_permanent)
     val onceTitle = stringResource(Res.string.ignored_once)
     val emptyHint = stringResource(Res.string.no_ignored)
     val systemTag = stringResource(Res.string.system_app_tag)
 
-    MarketScaffold(title = stringResource(Res.string.ignored_apps), onBack = onBack) { innerPadding, backdropModifier, scrollBehavior ->
+    MarketScaffold(
+        title = stringResource(Res.string.ignored_apps),
+        // 多选模式下返回只退出多选
+        onBack = { if (multiSelectMode) viewModel.exitMultiSelect() else onBack() },
+        actions = {
+            if (multiSelectMode) {
+                TopRightSelectAllButton(onClick = { viewModel.toggleMultiSelectAll() })
+            }
+        },
+        bottomContent = {
+            if (multiSelectMode) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MiuixTheme.colorScheme.surface)
+                        .navigationBarsPadding()
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    AppButton(
+                        text = stringResource(Res.string.restore),
+                        onClick = { viewModel.restoreSelected() },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColorsPrimary(),
+                    )
+                }
+            }
+        },
+    ) { innerPadding, backdropModifier, scrollBehavior ->
         val layoutDirection = LocalLayoutDirection.current
         LazyColumn(
             modifier = Modifier
@@ -83,6 +132,14 @@ fun IgnoredAppsScreen(
                 isFirst = true,
                 onOpenDetail = onOpenDetail,
                 onRestore = { viewModel.removePermanent(it.packageName) },
+                multiSelectMode = multiSelectMode,
+                multiSelected = multiSelected,
+                rowPadding = rowPadding,
+                onToggleSelect = { viewModel.toggleMultiSelected(it) },
+                onLongPress = { pkg ->
+                    if (!multiSelectMode) viewModel.enterMultiSelect(pkg)
+                    else viewModel.toggleMultiSelected(pkg)
+                },
             )
             ignoredSection(
                 title = onceTitle,
@@ -91,6 +148,14 @@ fun IgnoredAppsScreen(
                 systemTag = systemTag,
                 onOpenDetail = onOpenDetail,
                 onRestore = { viewModel.removeOnce(it.packageName) },
+                multiSelectMode = multiSelectMode,
+                multiSelected = multiSelected,
+                rowPadding = rowPadding,
+                onToggleSelect = { viewModel.toggleMultiSelected(it) },
+                onLongPress = { pkg ->
+                    if (!multiSelectMode) viewModel.enterMultiSelect(pkg)
+                    else viewModel.toggleMultiSelected(pkg)
+                },
             )
         }
     }
@@ -104,6 +169,11 @@ private fun LazyListScope.ignoredSection(
     onOpenDetail: (IgnoredUpdate) -> Unit,
     onRestore: (IgnoredUpdate) -> Unit,
     isFirst: Boolean = false,
+    multiSelectMode: Boolean = false,
+    multiSelected: Set<String> = emptySet(),
+    rowPadding: Dp = 16.dp,
+    onToggleSelect: (String) -> Unit = {},
+    onLongPress: (String) -> Unit = {},
 ) {
     item(key = "title-$title") {
         SectionTitle(text = title, topPadding = if (isFirst) 0.dp else 20.dp)
@@ -131,6 +201,11 @@ private fun LazyListScope.ignoredSection(
                     systemTag = systemTag,
                     onOpenDetail = onOpenDetail,
                     onRestore = onRestore,
+                    multiSelectMode = multiSelectMode,
+                    multiSelected = entry.packageName in multiSelected,
+                    onToggleSelect = { onToggleSelect(entry.packageName) },
+                    onLongPress = { onLongPress(entry.packageName) },
+                    rowPadding = rowPadding,
                 )
             }
         }
@@ -143,12 +218,21 @@ private fun IgnoredAppRow(
     systemTag: String,
     onOpenDetail: (IgnoredUpdate) -> Unit,
     onRestore: (IgnoredUpdate) -> Unit,
+    multiSelectMode: Boolean = false,
+    multiSelected: Boolean = false,
+    onToggleSelect: () -> Unit = {},
+    onLongPress: () -> Unit = {},
+    rowPadding: Dp = 16.dp,
 ) {
     Row(
         Modifier
             .fillMaxWidth()
-            .clickable { onOpenDetail(entry) }
-            .padding(16.dp),
+            // 长按进入多选；多选模式下点击即勾选
+            .combinedClickable(
+                onClick = { if (multiSelectMode) onToggleSelect() else onOpenDetail(entry) },
+                onLongClick = onLongPress,
+            )
+            .padding(rowPadding),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -173,10 +257,19 @@ private fun IgnoredAppRow(
                 color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
             )
         }
-        AppCompactButton(
-            text = stringResource(Res.string.restore),
-            onClick = { onRestore(entry) },
-            modifier = Modifier.width(70.dp),
-        )
+        if (multiSelectMode) {
+            // 多选模式：恢复按钮变成勾选框
+            Checkbox(
+                state = if (multiSelected) ToggleableState.On else ToggleableState.Off,
+                onClick = { onToggleSelect() },
+                modifier = Modifier.width(70.dp),
+            )
+        } else {
+            AppCompactButton(
+                text = stringResource(Res.string.restore),
+                onClick = { onRestore(entry) },
+                modifier = Modifier.width(70.dp),
+            )
+        }
     }
 }

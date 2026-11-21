@@ -1,9 +1,11 @@
 package com.app.market.data.install
-
+import android.content.Context
 import com.app.market.data.install.network.ArtifactSourceReader
+import com.app.market.data.install.storage.ApkCopySaver
 import com.app.market.data.install.storage.MediaStorePackageStore
 import com.app.market.domain.model.install.InstallEvent
 import com.app.market.domain.model.install.InstallRequest
+import com.app.market.domain.repository.InstallerPreferencesRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -14,9 +16,11 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 
 internal class RemotePackageDownloader(
+    private val context: Context,
     private val stagingDownloader: PackageStagingDownloader,
     private val sourceReader: ArtifactSourceReader,
     private val packageStore: MediaStorePackageStore,
+    private val preferences: InstallerPreferencesRepository,
 ) {
     fun download(request: InstallRequest): Flow<InstallEvent> = channelFlow {
         send(InstallEvent.Preparing)
@@ -24,6 +28,8 @@ internal class RemotePackageDownloader(
         val staged = stagingDownloader.stage(request) { completed, total ->
             send(InstallEvent.Progress(completed, total))
         }
+        // 「另存应用安装包」：下载一完成就把副本写到用户指定文件夹
+        ApkCopySaver.save(context, request, staged, preferences)
         // 第二阶段：暂存完整后落位到公共下载目录；取消只回滚 MediaStore 条目，暂存保留
         var pending: MediaStorePackageStore.PendingSavedPackage? = null
         var published = false

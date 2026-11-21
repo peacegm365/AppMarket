@@ -2,6 +2,9 @@ package com.app.market.ui.screen
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +36,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.app.market.viewmodel.UpdatesViewModel
+import org.koin.compose.viewmodel.koinViewModel
+
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.BlendMode
@@ -48,7 +55,28 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.app.market.resources.Res
+import com.app.market.resources.about_appharbor
+import com.app.market.resources.about_license_intro_dhizuku
 import com.app.market.resources.about_open_source_licenses
+import com.app.market.resources.about_fork_source
+import com.app.market.resources.about_original_upstream
+import com.app.market.resources.about_project
+import com.app.market.resources.about_license_intro_miuix
+import com.app.market.resources.about_license_intro_cmp
+import com.app.market.resources.about_license_intro_ktor
+import com.app.market.resources.about_license_intro_kotlinx
+import com.app.market.resources.about_license_intro_koin
+import com.app.market.resources.about_license_intro_androidx
+import com.app.market.resources.about_license_intro_coil
+import com.app.market.resources.about_license_intro_abdm
+import com.app.market.resources.about_license_intro_hdiffpatch
+import com.app.market.resources.about_license_intro_hiddenapi
+import com.app.market.resources.about_license_intro_hypernotification
+import com.app.market.resources.about_license_intro_shizuku
+import com.app.market.resources.about_license_intro_composemedia
+import com.app.market.resources.about_license_intro_aurora
+import com.app.market.resources.about_license_intro_installerx
+import com.app.market.resources.about_license_intro_appharbor
 import com.app.market.resources.about_title
 import com.app.market.resources.app_name
 import com.app.market.resources.back
@@ -58,7 +86,7 @@ import com.app.market.ui.component.blur.BlurredBar
 import com.app.market.ui.component.blur.ColorBlendToken
 import com.app.market.ui.component.blur.rememberBlurBackdrop
 import com.app.market.ui.component.blur.rememberBlurEnabled
-import com.app.market.ui.component.effect.BgEffectBackground
+import com.app.market.ui.component.effect.OsBackground
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
 import top.yukonga.miuix.kmp.basic.Card
@@ -74,13 +102,15 @@ import top.yukonga.miuix.kmp.blur.BlendColorEntry
 import top.yukonga.miuix.kmp.blur.BlurBlendMode
 import top.yukonga.miuix.kmp.blur.BlurColors
 import top.yukonga.miuix.kmp.blur.BlurDefaults
-import top.yukonga.miuix.kmp.blur.isRuntimeShaderSupported
+import top.yukonga.miuix.kmp.material.isRuntimeShaderSupported
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.textureBlur
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Back
 import top.yukonga.miuix.kmp.preference.ArrowPreference
+import top.yukonga.miuix.kmp.preference.SwitchPreference
 import top.yukonga.miuix.kmp.squircle.squircleClip
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
@@ -213,12 +243,10 @@ private fun AboutContent(
         end = innerPadding.calculateEndPadding(layoutDirection),
     )
 
-    BgEffectBackground(
-        dynamicBackground = effectBackground,
+    OsBackground(
         modifier = Modifier.fillMaxSize(),
-        bgModifier = backdrop?.let { Modifier.layerBackdrop(it) } ?: Modifier,
-        effectBackground = effectBackground,
-        alpha = { 1f - scrollProgress.value },
+        // 彩色流光背景常驻：不随滚动淡出（滚动到任何位置都保持）
+        alpha = 1f,
     ) {
         Column(
             modifier = Modifier
@@ -320,6 +348,58 @@ private fun AboutContent(
 
             item(key = "about") {
                 Column(modifier = Modifier.heightIn(min = with(density) { viewportHeight.toDp() }).padding(bottom = 12.dp)) {
+                    SectionTitle(text = stringResource(Res.string.about_project))
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .then(
+                                if (backdrop != null) {
+                                    Modifier.textureBlur(
+                                        backdrop = backdrop,
+                                        shape = RoundedCornerShape(16.dp),
+                                        blurRadius = 60f,
+                                        noiseCoefficient = BlurDefaults.NoiseCoefficient,
+                                        colors = BlurColors(blendColors = cardBlendColors),
+                                        enabled = true,
+                                    )
+                                } else Modifier
+                            ),
+                        colors = CardDefaults.defaultColors(
+                            if (backdrop != null && blurEnabled) Color.Transparent else colorScheme.surfaceContainer,
+                            Color.Transparent,
+                        ),
+                    ) {
+                        ArrowPreference(
+                            title = "AppMarket",
+                            summary = "gitlab.com/FengGuan/AppMarket",
+                            onClick = { onOpenUrl("https://gitlab.com/FengGuan/AppMarket") },
+                        )
+                        // 「接收测试版」原来在「更新」分类里，收纳到 AppMarket（关于自身）这一块
+                        val selfUpdateVm: UpdatesViewModel = koinViewModel()
+                        val receivePrerelease by selfUpdateVm.receivePrerelease.collectAsStateWithLifecycle()
+                        SwitchPreference(
+                            title = "接收测试版",
+                            summary = "是否接收 GitLab 预发布（Upcoming Release）的测试版本",
+                            checked = receivePrerelease,
+                            onCheckedChange = selfUpdateVm::setReceivePrerelease,
+                        )
+                        ArrowPreference(
+                            title = stringResource(Res.string.about_appharbor),
+                            summary = "github.com/BeiChen-CN/Trove\n" + stringResource(Res.string.about_license_intro_appharbor),
+                            onClick = { onOpenUrl("https://github.com/BeiChen-CN/Trove") },
+                        )
+                        ArrowPreference(
+                            title = stringResource(Res.string.about_fork_source),
+                            summary = "github.com/zeroedx/AppMarket",
+                            onClick = { onOpenUrl("https://github.com/zeroedx/AppMarket") },
+                        )
+                        ArrowPreference(
+                            title = stringResource(Res.string.about_original_upstream),
+                            summary = "github.com/YXBwbWFya2V0/AppMarket",
+                            onClick = { onOpenUrl("https://github.com/YXBwbWFya2V0/AppMarket") },
+                        )
+                    }
                     SectionTitle(text = stringResource(Res.string.about_open_source_licenses))
                     Card(
                         modifier = Modifier
@@ -342,105 +422,107 @@ private fun AboutContent(
                             Color.Transparent,
                         ),
                     ) {
-                        ArrowPreference(
-                            title = "AndroidX Activity",
-                            summary = "developer.android.com/jetpack/androidx/releases/activity",
-                            onClick = { onOpenUrl("https://developer.android.com/jetpack/androidx/releases/activity") },
-                        )
-                        ArrowPreference(
-                            title = "AndroidX Core",
-                            summary = "developer.android.com/jetpack/androidx/releases/core",
-                            onClick = { onOpenUrl("https://developer.android.com/jetpack/androidx/releases/core") },
-                        )
-                        ArrowPreference(
-                            title = "AndroidX DataStore",
-                            summary = "developer.android.com/jetpack/androidx/releases/datastore",
-                            onClick = { onOpenUrl("https://developer.android.com/jetpack/androidx/releases/datastore") },
-                        )
-                        ArrowPreference(
-                            title = "AndroidX Lifecycle",
-                            summary = "developer.android.com/jetpack/androidx/releases/lifecycle",
-                            onClick = { onOpenUrl("https://developer.android.com/jetpack/androidx/releases/lifecycle") },
-                        )
-                        ArrowPreference(
-                            title = "AndroidX Navigation Event",
-                            summary = "developer.android.com/jetpack/androidx/releases/navigationevent",
-                            onClick = { onOpenUrl("https://developer.android.com/jetpack/androidx/releases/navigationevent") },
-                        )
-                        ArrowPreference(
-                            title = "AndroidX SplashScreen",
-                            summary = "developer.android.com/jetpack/androidx/releases/core",
-                            onClick = { onOpenUrl("https://developer.android.com/jetpack/androidx/releases/core") },
-                        )
-                        ArrowPreference(
-                            title = "coil",
-                            summary = "github.com/coil-kt/coil",
-                            onClick = { onOpenUrl("https://github.com/coil-kt/coil") },
-                        )
-                        ArrowPreference(
-                            title = "Compose Media Player",
-                            summary = "github.com/kdroidFilter/ComposeMediaPlayer",
-                            onClick = { onOpenUrl("https://github.com/kdroidFilter/ComposeMediaPlayer") },
-                        )
-                        ArrowPreference(
-                            title = "Compose Multiplatform",
-                            summary = "github.com/JetBrains/compose-multiplatform",
-                            onClick = { onOpenUrl("https://github.com/JetBrains/compose-multiplatform") },
-                        )
-                        ArrowPreference(
-                            title = "HDiffPatch",
-                            summary = "github.com/sisong/HDiffPatch",
-                            onClick = { onOpenUrl("https://github.com/sisong/HDiffPatch") },
-                        )
-                        ArrowPreference(
-                            title = "HiddenApiBypass",
-                            summary = "github.com/LSPosed/AndroidHiddenApiBypass",
-                            onClick = { onOpenUrl("https://github.com/LSPosed/AndroidHiddenApiBypass") },
-                        )
-                        ArrowPreference(
-                            title = "HyperNotification",
-                            summary = "github.com/xzakota/HyperNotification",
-                            onClick = { onOpenUrl("https://github.com/xzakota/HyperNotification") },
-                        )
-                        ArrowPreference(
-                            title = "Koin",
-                            summary = "github.com/InsertKoinIO/koin",
-                            onClick = { onOpenUrl("https://github.com/InsertKoinIO/koin") },
-                        )
-                        ArrowPreference(
-                            title = "kotlinx-datetime",
-                            summary = "github.com/Kotlin/kotlinx-datetime",
-                            onClick = { onOpenUrl("https://github.com/Kotlin/kotlinx-datetime") },
-                        )
-                        ArrowPreference(
-                            title = "kotlinx.collections.immutable",
-                            summary = "github.com/Kotlin/kotlinx.collections.immutable",
-                            onClick = { onOpenUrl("https://github.com/Kotlin/kotlinx.collections.immutable") },
-                        )
-                        ArrowPreference(
-                            title = "kotlinx.coroutines",
-                            summary = "github.com/Kotlin/kotlinx.coroutines",
-                            onClick = { onOpenUrl("https://github.com/Kotlin/kotlinx.coroutines") },
-                        )
-                        ArrowPreference(
-                            title = "kotlinx.serialization",
-                            summary = "github.com/Kotlin/kotlinx.serialization",
-                            onClick = { onOpenUrl("https://github.com/Kotlin/kotlinx.serialization") },
-                        )
-                        ArrowPreference(
-                            title = "ktor",
-                            summary = "github.com/ktorio/ktor",
-                            onClick = { onOpenUrl("https://github.com/ktorio/ktor") },
-                        )
-                        ArrowPreference(
-                            title = "miuix",
-                            summary = "github.com/compose-miuix-ui/miuix",
+                        LicenseRow(
+                            name = "miuix",
+                            intro = stringResource(Res.string.about_license_intro_miuix),
+                            license = "Apache-2.0",
                             onClick = { onOpenUrl("https://github.com/compose-miuix-ui/miuix") },
                         )
-                        ArrowPreference(
-                            title = "Shizuku",
-                            summary = "github.com/RikkaApps/Shizuku",
+                        LicenseRow(
+                            name = "JetBrains Compose Multiplatform",
+                            intro = stringResource(Res.string.about_license_intro_cmp),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/JetBrains/compose-multiplatform") },
+                        )
+                        LicenseRow(
+                            name = "Ktor",
+                            intro = stringResource(Res.string.about_license_intro_ktor),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/ktorio/ktor") },
+                        )
+                        LicenseRow(
+                            name = "Kotlinx (Coroutines / Serialization / DateTime)",
+                            intro = stringResource(Res.string.about_license_intro_kotlinx),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/Kotlin/kotlinx.coroutines") },
+                        )
+                        LicenseRow(
+                            name = "Koin",
+                            intro = stringResource(Res.string.about_license_intro_koin),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/InsertKoinIO/koin") },
+                        )
+                        LicenseRow(
+                            name = "AndroidX",
+                            intro = stringResource(Res.string.about_license_intro_androidx),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://developer.android.com/jetpack/androidx") },
+                        )
+                        LicenseRow(
+                            name = "coil",
+                            intro = stringResource(Res.string.about_license_intro_coil),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/coil-kt/coil") },
+                        )
+                        LicenseRow(
+                            name = "Komi Store",
+                            intro = "GitHub 榜单与发现参考项目",
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/komi-store/komi-store") },
+                        )
+                        LicenseRow(
+                            name = "AB Download Manager",
+                            intro = stringResource(Res.string.about_license_intro_abdm),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/amir1376/ab-download-manager") },
+                        )
+                        LicenseRow(
+                            name = "HDiffPatch",
+                            intro = stringResource(Res.string.about_license_intro_hdiffpatch),
+                            license = "MIT",
+                            onClick = { onOpenUrl("https://github.com/sisong/HDiffPatch") },
+                        )
+                        LicenseRow(
+                            name = "HiddenApiBypass",
+                            intro = stringResource(Res.string.about_license_intro_hiddenapi),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/LSPosed/AndroidHiddenApiBypass") },
+                        )
+                        LicenseRow(
+                            name = "HyperNotification",
+                            intro = stringResource(Res.string.about_license_intro_hypernotification),
+                            license = "Apache-2.0",
+                            onClick = { onOpenUrl("https://github.com/xzakota/HyperNotification") },
+                        )
+                        LicenseRow(
+                            name = "Shizuku",
+                            intro = stringResource(Res.string.about_license_intro_shizuku),
+                            license = "Apache-2.0",
                             onClick = { onOpenUrl("https://github.com/RikkaApps/Shizuku") },
+                        )
+                        LicenseRow(
+                            name = "Dhizuku",
+                            intro = stringResource(Res.string.about_license_intro_dhizuku),
+                            license = "GPL-3.0",
+                            onClick = { onOpenUrl("https://github.com/iamr0s/Dhizuku") },
+                        )
+                        LicenseRow(
+                            name = "ComposeMediaPlayer",
+                            intro = stringResource(Res.string.about_license_intro_composemedia),
+                            license = "MIT",
+                            onClick = { onOpenUrl("https://github.com/kdroidFilter/ComposeMediaPlayer") },
+                        )
+                        LicenseRow(
+                            name = "InstallerX Revived",
+                            intro = stringResource(Res.string.about_license_intro_installerx),
+                            license = "GPL-3.0",
+                            onClick = { onOpenUrl("https://github.com/wxxsfxyzm/InstallerX-Revived") },
+                        )
+                        LicenseRow(
+                            name = "Aurora Store",
+                            intro = stringResource(Res.string.about_license_intro_aurora),
+                            license = "GPL-3.0",
+                            onClick = { onOpenUrl("https://github.com/whyorean/AuroraStore") },
                         )
                     }
 
@@ -448,5 +530,59 @@ private fun AboutContent(
                 }
             }
         }
+    }
+}
+
+
+/**
+ * 许可条目行（照搬 ArpCut 的 LicenseRow：名称 + 介绍 + 蓝色许可徽标，整行点击跳转网页）。
+ */
+@Composable
+private fun LicenseRow(
+    name: String,
+    intro: String,
+    license: String,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = name,
+                style = MiuixTheme.textStyles.body1.copy(fontWeight = FontWeight.Medium),
+                color = MiuixTheme.colorScheme.onSurface,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = intro,
+                style = MiuixTheme.textStyles.footnote1,
+                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            LicenseBadge(text = license)
+        }
+    }
+}
+
+/** 蓝色许可徽标（照搬 ArpCut 的 LicenseBadge） */
+@Composable
+private fun LicenseBadge(text: String) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color(0xFF3482FF))
+            .padding(horizontal = 8.dp, vertical = 3.dp),
+    ) {
+        Text(
+            text = text,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = Color.White,
+        )
     }
 }

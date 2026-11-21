@@ -3,8 +3,11 @@ package com.app.market.domain.model.preference
 /** The tab opened on launch and returned to by Back. */
 enum class HomePage(val token: String) {
     TODAY("today"),
+    RANKING("ranking"),
     UPDATES("updates"),
-    SEARCH("search");
+    SEARCH("search"),
+    DOWNLOADS("downloads"),
+    SETTINGS("settings");
 
     companion object {
         /** Resolve from a persisted [token]; unknown/null falls back to [TODAY]. */

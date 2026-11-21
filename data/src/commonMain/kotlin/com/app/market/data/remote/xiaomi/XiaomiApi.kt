@@ -47,6 +47,7 @@ internal class XiaomiApi(
     private val xiaomiClient: XiaomiClient,
 ) {
     private val MARKET = "https://app.market.xiaomi.com/apm"
+    private val WEB_CATEGORY = "https://app.mi.com/categotyAllListApi"
     private val EXP_ID = "$MARKET/expId"
     private val UPDATE = "https://updateinfo.market.xiaomi.com/apm/updateinfo/v2?lo=CN"
     private val DIFF_SIZE = "https://updateinfo.market.xiaomi.com/apm/updateinfo/diffsize?lo=CN"
@@ -102,6 +103,12 @@ internal class XiaomiApi(
         )
         val url = XiaomiSigner.signedUrl("$MARKET/search?${query(params)}")
         return parseSearch(parseJsonObject(http.get(url, cookie)), removeSearchAds)
+    }
+
+    /** Public web listing; unsigned and device-independent, so no profile/cookie is needed. */
+    suspend fun categoryApps(categoryId: Int, page: Int): SearchPage {
+        val url = "$WEB_CATEGORY?${query(mapOf("page" to page.toString(), "categoryId" to categoryId.toString(), "pageSize" to "30"))}"
+        return parseCategoryApps(parseJsonObject(http.get(url, "")))
     }
 
     suspend fun downloadMeta(app: MarketAppInfo, keyword: String, profile: MarketProfile, cookie: String): DownloadMeta {
@@ -321,7 +328,7 @@ internal class XiaomiApi(
         )
         val primary = primaryDownloadPart(parts)
         val fullDownloadSize = parts.sumOf { it.size }.takeIf { it > 0L }
-            ?: json.long("apkSizeV2", json.long("apkSize", primary.size))
+            ?: json.apkSizeBytes(primary.size)
         return DownloadMeta(
             appId = app.appId,
             packageName = json.str("packageName", app.packageName),
@@ -798,6 +805,9 @@ internal class XiaomiApi(
                     coverImage = normalizeTodayMediaUrl(item.str("imgUrl"), "l720q90"),
                     app = app,
                     articleLink = clickUrl,
+                    // 小米今日流就是「金米奖」榜，标签固定为金米奖；
+                    // 之前留空后 UI 回退成「今日推荐」，看板上的金米奖标识就丢了
+                    awardName = "金米奖",
                 )
             }
         }
@@ -957,12 +967,12 @@ internal class XiaomiApi(
         }?.let(::urlDecode) ?: ""
     }
 
-    fun iconUrl(icon: String): String = imageUrl(icon, "l144q80")
+    fun iconUrl(icon: String): String = imageUrl(icon, "l256q90")
 
     fun imageUrl(path: String, spec: String): String {
         if (path.isBlank()) return ""
-        if (path.startsWith("http")) return path
-        if (path.startsWith("webp/") || path.startsWith("png/")) return THUMB + path
+        if (path.startsWith("http")) return upgradeIconSpec(path, spec)
+        if (path.startsWith("webp/") || path.startsWith("png/")) return THUMB + upgradeIconSpec(path, spec)
         return "${THUMB}webp/$spec/$path"
     }
 
@@ -985,6 +995,31 @@ internal class XiaomiApi(
         return SearchPage(items, hasMore = json.bool("hasMore", items.isNotEmpty()))
     }
 
+    private fun parseCategoryApps(json: JsonObject): SearchPage {
+        val list = json.arr("data") ?: return SearchPage(emptyList(), hasMore = false)
+        val items = (0 until list.len).mapNotNull { i ->
+            val o = list.objAt(i) ?: return@mapNotNull null
+            val pkg = o.str("packageName")
+            if (pkg.isBlank()) return@mapNotNull null
+            MarketAppInfo(
+                appId = o.long("appId"),
+                packageName = pkg,
+                displayName = o.str("displayName", pkg),
+                publisherName = o.str("publisherName"),
+                versionName = "",
+                versionCode = 0L,
+                // 该接口返回 http 明文图标，Android 默认禁止明文流量
+                icon = upgradeIconSpec(o.str("icon").replaceFirst("http://", "https://")),
+                apkSize = o.apkSizeBytes(),
+                // 接口为 10 分制，其余来源为 5 分制
+                ratingScore = o.double("ratingScore") / 2,
+                type = o.str("level1CategoryName"),
+                category = o.str("level2CategoryName", o.str("level1CategoryName")),
+            )
+        }.distinctBy { it.packageName }
+        return SearchPage(items, hasMore = json.bool("hasNext", items.isNotEmpty()))
+    }
+
     private fun parseApps(arr: JsonArray, isSystemApp: Boolean = false): List<MarketAppInfo> {
         val out = mutableListOf<MarketAppInfo>()
         for (i in 0 until arr.len) {
@@ -1003,7 +1038,7 @@ internal class XiaomiApi(
             versionName = o.str("versionName"),
             versionCode = o.long("versionCode"),
             icon = iconUrl(o.str("icon")),
-            apkSize = o.long("apkSizeV2", o.long("apkSize")),
+            apkSize = o.apkSizeBytes(),
             ratingScore = o.double("ratingScore"),
             changeLog = o.str("changeLog"),
             openLink = appOpenLink(o),
@@ -1027,9 +1062,9 @@ internal class XiaomiApi(
             publisherName = o.str("publisherName"),
             versionName = downloadable.str("versionName").takeIf { it.isNotBlank() } ?: o.str("versionName"),
             versionCode = downloadable?.long("versionCode")?.takeIf { it > 0L } ?: o.long("versionCode"),
-            icon = imageUrl(downloadable.str("icon").takeIf { it.isNotBlank() } ?: o.str("icon"), "l144q80"),
-            apkSize = downloadable?.long("apkSize")?.takeIf { it > 0L }
-                ?: o.long("apkSizeV2", o.long("apkSize")),
+            icon = imageUrl(downloadable.str("icon").takeIf { it.isNotBlank() } ?: o.str("icon"), "l256q90"),
+            apkSize = downloadable?.long("apkSize")?.takeIf { it > 0L }?.times(1024L)
+                ?: o.apkSizeBytes(),
             ratingScore = o.double("commentScore", o.double("ratingScore")),
             changeLog = o.str("changeLog"),
             isSystemApp = isSystemApp,
@@ -1479,4 +1514,27 @@ internal fun parseDeltaSizeResponse(response: JsonObject): Map<String, Long>? {
             if (packageName.isNotBlank() && size > 0L) put(packageName, size)
         }
     }
+}
+
+/**
+ * 小米商店的 `apkSize` 单位是 KB，`apkSizeV2` 才是字节。
+ * 之前直接拿 apkSize 当字节用，1.7GB 的应用会显示成 1.7MB（甚至 0MB）。
+ */
+private fun JsonObject.apkSizeBytes(fallback: Long = 0L): Long {
+    val bytes = long("apkSizeV2")
+    if (bytes > 0L) return bytes
+    // 分类接口里极少数条目 apkSize 是负数（如植物大战僵尸2 = -2020193，依然是 KB 大小），
+    // 原来直接当 0 处理，列表里就成了「没有大小」。
+    val kb = long("apkSize")
+    if (kb != 0L) return kotlin.math.abs(kb) * 1024L
+    return fallback
+}
+
+/**
+ * 小米图床 URL 里的尺寸规格（`/l144q80/`、`/w144h144/`、`/l144/`）统一提升到目标分辨率。
+ * 列表页原来拿到的就是 144px 小图，控件在高分屏上放大后发虚。
+ */
+private fun upgradeIconSpec(url: String, spec: String = "l256q90"): String {
+    if (url.isBlank()) return url
+    return url.replace(Regex("/(l\\d+q\\d+|w\\d+h\\d+|l\\d+)/"), "/$spec/")
 }

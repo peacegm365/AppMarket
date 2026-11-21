@@ -43,16 +43,18 @@
 ## 特性概览
 
 - **多源聚合与自由定制**：支持独立为「搜索来源」、「更新来源」以及「今日来源」指定不同的商店源，各取所长。
+- **多线程分片下载**：大体积安装包按字节范围切分为多段并发下载，支持断点续传、分片独立重试与并行连接数调节（参考 AB Download Manager）。
 - **纯客户端增量更新**：内置多套差分算法还原引擎，可用时下载补丁包并于本地合成为完整 APK，节省 70%~90% 流量。
-- **全场景安装器支持**：支持系统标准 PackageInstaller、Shizuku 免 Root 静默安装、Root 极速静默安装以及第三方安装器交接。
+- **全场景安装器支持**：支持系统标准 PackageInstaller、Shizuku / Dhizuku 免 Root 静默安装、Root 极速静默安装以及第三方安装器交接。
 - **纯净体验与结果净化**：
   - **去除推广应用**：自动隐藏搜索结果中的广告推广。
   - **过滤快应用**：一键隐藏免安装快应用结果。
   - **过滤预约应用**：过滤尚未上线的预注册应用。
   - **优化应用名称**：智能裁剪应用名称后携带的营销副标题与推广宣传语。
-- **历史版本回退**：接入海量应用历史库，支持按版本追溯并下载历史版本 APK。
+- **历史版本回退**：支持查看并下载历史版本 APK。Google Play 与豌豆荚可在应用详情的更多菜单中打开同款版本选择弹窗；豌豆荚从版本列表选择，支持分页、下载和另存。
 - **设备指纹与机型模拟**：内置预设及自定义 `MarketProfile`（机型、Android 版本、SDK、分辨率、区域等），解决特定厂商或生态专属应用不可见问题。
 - **系统生态深度优化**：支持小米 HyperOS 超级岛优化、焦点通知优化等。
+- **内置代理（自研 AnyTLS 客户端）**：直接让本应用的网络请求走远端节点，**不含内核二进制、不监听本地端口、不接管整机流量**；订阅解析、节点测速、超时标记全部在 App 内实现，安装包体积不变。
 - **跨平台一致体验**：基于 Compose Multiplatform 打造，同时支持 Android 移动端与桌面端（Windows / macOS / Linux）。
 
 ---
@@ -82,10 +84,13 @@
 2. **Shizuku 静默安装 (Shizuku)**：
    - 借助 [Shizuku](https://shizuku.rikka.app/) 服务在免 Root 情况下获取系统级安装权限。
    - 无需手动点击系统安装弹窗，后台静默无感完成更新与安装。
-3. **Root 静默安装 (Root)**：
+3. **Dhizuku 静默安装 (Dhizuku)**：
+   - 借助 [Dhizuku](https://github.com/iamr0s/Dhizuku) 借用设备所有者（DeviceOwner）权限，同样无需 Root。
+   - 适合已用 Dhizuku 激活设备所有者、但不想额外常驻 Shizuku 服务的设备。
+4. **Root 静默安装 (Root)**：
    - 适用于已获取 Root 权限（KernelSU / Magisk / APatch）的设备。
    - 直接通过底层特权指令高速完成静默安装。
-4. **第三方包安装器 (Third-party)**：
+5. **第三方包安装器 (Third-party)**：
    - 支持自定义交接给系统内其他第三方安装器或分发应用处理。
 
 ---
@@ -139,7 +144,7 @@
 
 ---
 
-## 开源引用
+## 开源引用与致谢
 
 - [Compose Multiplatform](https://github.com/JetBrains/compose-multiplatform) - JetBrains 推出的声明式跨平台 UI 框架
 - [miuix](https://github.com/compose-miuix-ui/miuix) - 遵循 MIUI / HyperOS 设计风格的 Compose Multiplatform UI 库
@@ -147,9 +152,13 @@
 - [Koin](https://github.com/InsertKoinIO/koin) - 轻量级依赖注入框架
 - [Coil](https://github.com/coil-kt/coil) - Kotlin Multiplatform 异步图片加载库
 - [Shizuku](https://github.com/RikkaApps/Shizuku) - Android 系统级 API 免 Root 调用框架
+- [Dhizuku](https://github.com/iamr0s/Dhizuku) - 借用设备所有者权限实现免 Root 静默安装（GPL-3.0）
+- [anytls-go](https://github.com/anytls/anytls-go) - AnyTLS 协议文档与参考实现，用于自研 Kotlin 代理客户端
 - [HiddenApiBypass](https://github.com/LSPosed/AndroidHiddenApiBypass) - Android 非公开 API 限制绕过方案
 - [HDiffPatch](https://github.com/sisong/HDiffPatch) - 高性能差分与补丁还原库
+- [AB Download Manager](https://github.com/amir1376/ab-download-manager) - 多线程分片下载设计参考（字节范围分片、并发连接与断点续传）
 - [HyperNotification](https://github.com/xzakota/HyperNotification) - 小米澎湃焦点通知与超级岛适配支持
+- [HSSkyBoy/AppMarket](https://github.com/HSSkyBoy/AppMarket) - 移植了商店外链解析与剪贴板识别、Monet/AMOLED 主题色彩管线及多源分类浏览等核心功能，感谢原作者 @HSSkyBoy 的开源贡献。
 
 ---
 

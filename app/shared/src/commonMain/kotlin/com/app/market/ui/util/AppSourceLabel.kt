@@ -23,4 +23,17 @@ fun appSourceLabel(source: AppSource): String = when (source) {
     AppSource.HONOR -> stringResource(Res.string.source_honor)
     AppSource.HUAWEI -> stringResource(Res.string.source_huawei)
     AppSource.TAPTAP -> stringResource(Res.string.source_taptap)
+    // TODO: source_coolapk 资源访问器未生成，先用字面量，后续补 i18n
+    AppSource.GOOGLE -> "Google Play"
+    AppSource.COOLAPK -> "酷安"
+    AppSource.KUAIBAO -> "好游快爆"
+    AppSource.APPCHINA -> "应用汇"
+    AppSource.TENCENT -> "应用宝"
+    AppSource.BOX7723 -> "7723游戏盒"
+    AppSource.FDROID -> "F-Droid"
+    AppSource.APKPURE -> "APKPure"
+    AppSource.APTOIDE -> "Aptoide"
+    AppSource.GITHUB -> "GitHub"
+    AppSource.LSPOSED -> "LSPosed"
+    AppSource.GITLAB -> "GitLab"
 }

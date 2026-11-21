@@ -14,7 +14,8 @@ interface DownloadRepository {
     val installedPackages: SharedFlow<String>
     val deltaFallbacks: SharedFlow<DeltaFallback>
     val pendingUserAction: StateFlow<InstallUserAction?>
-    fun start(meta: DownloadMeta, installAfterDownload: Boolean = true)
+    fun prepareDownload(app: com.app.market.domain.model.market.MarketAppInfo) = Unit
+    fun start(meta: DownloadMeta, installAfterDownload: Boolean = true, saveUri: String? = null)
     fun install(packageName: String)
     fun cancel(packageName: String)
     fun cancel(packageName: String, versionCode: Long)

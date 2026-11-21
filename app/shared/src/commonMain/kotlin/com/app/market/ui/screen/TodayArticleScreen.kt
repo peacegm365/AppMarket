@@ -96,7 +96,7 @@ fun TodayArticleScreen(
     val summary = feedItem?.summary.orEmpty()
     val awardName = feedItem?.awardName.orEmpty()
         .ifBlank { article?.awardName.orEmpty() }
-        .ifBlank { stringResource(Res.string.golden_award) }
+        .ifBlank { "今日推荐" }
     val appName = feedItem?.app?.displayName
         ?: feedItem?.apps?.singleOrNull()?.displayName
         ?: article?.app?.displayName
@@ -218,13 +218,21 @@ fun TodayArticleScreen(
                     val bodyBlocks = remember(article.blocks, article.apps) {
                         orderedArticleBlocks(article).withoutBoundaryImages()
                     }
-                    ArticleContent(
-                        bodyBlocks = bodyBlocks,
-                        safePadding = safePadding,
-                        lazyListState = lazyListState,
-                        scrollBehavior = scrollBehavior,
-                        onOpenApp = onOpenApp,
-                    )
+                    // 正文为空（应用型推荐没有图文）时给明确提示，别留一片空白
+                    if (bodyBlocks.isEmpty()) {
+                        ArticleErrorState(
+                            message = "该推荐暂无图文内容",
+                            safePadding = safePadding,
+                        )
+                    } else {
+                        ArticleContent(
+                            bodyBlocks = bodyBlocks,
+                            safePadding = safePadding,
+                            lazyListState = lazyListState,
+                            scrollBehavior = scrollBehavior,
+                            onOpenApp = onOpenApp,
+                        )
+                    }
                 }
             }
         }
@@ -571,12 +579,12 @@ private fun SingleArticleAppBar(
         ) {
             AppIcon(
                 url = app.icon,
-                contentDescription = appDisplayName(app.displayName, app.source),
+                contentDescription = appDisplayName(app),
                 size = 48.dp,
             )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = appDisplayName(app.displayName, app.source),
+                    text = appDisplayName(app),
                     color = MiuixTheme.colorScheme.onPrimary,
                     style = MiuixTheme.textStyles.headline1.copy(lineHeight = 22.sp),
                     fontWeight = FontWeight.Medium,
@@ -754,6 +762,11 @@ private fun orderedArticleBlocks(article: TodayArticle): List<ArticleBlock> {
         }
     }
     flushApps()
+    // 应用型推荐（没有正文）时，应用卡片不能被当成「头图里已展示的那个」裁掉，
+    // 否则整页只剩「暂无图文内容」。
+    if (result.isEmpty() && article.apps.isNotEmpty()) {
+        result += ArticleBlock.Apps(article.apps)
+    }
     return result
 }
 

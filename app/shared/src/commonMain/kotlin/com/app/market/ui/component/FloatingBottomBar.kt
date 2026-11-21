@@ -75,13 +75,11 @@ import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.blur.Backdrop
 import top.yukonga.miuix.kmp.blur.blur
 import top.yukonga.miuix.kmp.blur.drawBackdrop
-import top.yukonga.miuix.kmp.blur.highlight.BloomStroke
-import top.yukonga.miuix.kmp.blur.highlight.Highlight
-import top.yukonga.miuix.kmp.blur.highlight.LightPosition
-import top.yukonga.miuix.kmp.blur.highlight.LightSource
+import top.yukonga.miuix.kmp.material.GlassEdgeStrokes
+import top.yukonga.miuix.kmp.material.drawEdgeStroke
+import top.yukonga.miuix.kmp.material.rememberTiltLight
 import top.yukonga.miuix.kmp.blur.layerBackdrop
 import top.yukonga.miuix.kmp.blur.rememberLayerBackdrop
-import top.yukonga.miuix.kmp.blur.sensor.rememberDeviceTilt
 import top.yukonga.miuix.kmp.theme.LocalContentColor
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import kotlin.math.PI
@@ -92,71 +90,8 @@ import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlin.math.sin
 
+
 val LocalFloatingBottomBarTabScale = staticCompositionLocalOf { { 1f } }
-
-private val indicatorSpecular = Highlight(
-    width = 1.dp,
-    alpha = 1f,
-    style = BloomStroke(
-        color = Color.White.copy(alpha = 0.12f),
-        innerBlurRadius = 2.dp,
-        primaryLight = LightSource(
-            position = LightPosition(0.5f, -0.3f, -0.05f),
-            color = Color.White,
-            intensity = 1f,
-        ),
-        secondaryLight = LightSource(
-            position = LightPosition(0.5f, 0.8f, -0.5f),
-            color = Color.White,
-            intensity = 0.4f,
-        ),
-        dualPeak = true,
-    ),
-)
-
-private const val LIGHT_REF_X = 0.5f
-private const val LIGHT_REF_Y = 0.7f
-private const val GRAVITY_DIR_THRESHOLD_SQ = 0.01f
-private const val GRAVITY_ANGLE_STEP_RAD = (3.0 * PI / 180.0).toFloat()
-
-@Composable
-private fun rememberQuantizedGravityAngle(): State<Float> {
-    val tiltState = rememberDeviceTilt()
-    return remember(tiltState) {
-        derivedStateOf {
-            val tilt = tiltState.value
-            val gravityMagnitudeSquared = tilt.gravityX * tilt.gravityX + tilt.gravityY * tilt.gravityY
-            if (gravityMagnitudeSquared > GRAVITY_DIR_THRESHOLD_SQ) {
-                (atan2(tilt.gravityY, tilt.gravityX) / GRAVITY_ANGLE_STEP_RAD).roundToInt() *
-                        GRAVITY_ANGLE_STEP_RAD
-            } else {
-                (-PI / 2).toFloat()
-            }
-        }
-    }
-}
-
-@Composable
-private fun rememberGravityRotatedHighlight(base: Highlight, extraDegrees: Float = 0f): State<Highlight> {
-    val gravityAngle = rememberQuantizedGravityAngle()
-    return remember(gravityAngle, base, extraDegrees) {
-        derivedStateOf {
-            val baseStyle = base.style as BloomStroke
-            val radians = gravityAngle.value + (extraDegrees * PI / 180.0).toFloat()
-            base.copy(
-                style = baseStyle.copy(
-                    primaryLight = baseStyle.primaryLight.copy(
-                        position = LightPosition(
-                            x = LIGHT_REF_X + cos(radians),
-                            y = LIGHT_REF_Y + sin(radians),
-                            z = baseStyle.primaryLight.position.z,
-                        ),
-                    ),
-                ),
-            )
-        }
-    }
-}
 
 @Composable
 fun RowScope.FloatingBottomBarItem(
@@ -209,6 +144,8 @@ fun FloatingBottomBar(
     tabsCount: Int,
     modifier: Modifier = Modifier,
     isBlurEnabled: Boolean = true,
+    barHeight: androidx.compose.ui.unit.Dp = 64.dp,
+    barWidth: androidx.compose.ui.unit.Dp? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     val isDark = isSystemInDarkTheme()
@@ -304,11 +241,15 @@ fun FloatingBottomBar(
             },
         )
     }
-    val baseHighlight = rememberGravityRotatedHighlight(indicatorSpecular, extraDegrees = -45f)
-    val pillHighlight = rememberGravityRotatedHighlight(indicatorSpecular, extraDegrees = 90f)
+    // 玻璃边缘高光：EdgeStroke 预设 + 倾斜光源（替代旧 Highlight/BloomStroke 系统）
+    val highlightBase = if (isDark) GlassEdgeStrokes.MiddleDark else GlassEdgeStrokes.MiddleLight
+    val highlightStroke = highlightBase.copy(primary = rememberTiltLight(highlightBase.primary, sensitivity = 0.15f))
     val combinedBackdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop)
 
-    Box(modifier = modifier.width(IntrinsicSize.Min), contentAlignment = Alignment.CenterStart) {
+    Box(
+        modifier = if (barWidth != null) modifier.width(barWidth) else modifier.width(IntrinsicSize.Min),
+        contentAlignment = Alignment.CenterStart,
+    ) {
         Row(
             modifier = Modifier
                 .selectableGroup()
@@ -336,14 +277,17 @@ fun FloatingBottomBar(
                                 blur(4.dp.toPx(), 4.dp.toPx())
                                 lens(refractionHeight = 24.dp.toPx(), refractionAmount = 24.dp.toPx())
                             },
-                            highlight = { baseHighlight.value.copy(alpha = 0.75f) },
                             layerBlock = {
                                 val width = size.width.coerceAtLeast(1f)
                                 val scale = lerp(1f, 1f + 16.dp.toPx() / width, dampedDragAnimation.pressProgress)
                                 scaleX = scale
                                 scaleY = scale
                             },
-                            onDrawSurface = { drawRect(containerColor) },
+                            onDrawSurface = {
+                                drawRect(containerColor)
+                                // 高光层（原 highlight 参数迁移）
+                                drawEdgeStroke(pillShape, highlightStroke, alpha = 0.75f)
+                            },
                         )
                     } else {
                         Modifier.background(containerColor, pillShape)
@@ -357,7 +301,7 @@ fun FloatingBottomBar(
                     },
                 )
                 .then(dampedDragAnimation.modifier)
-                .height(64.dp)
+                .height(barHeight)
                 .padding(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -386,7 +330,7 @@ fun FloatingBottomBar(
                             onDrawSurface = { drawRect(containerColor) },
                         )
                         .then(interactiveHighlight.modifier)
-                        .height(56.dp)
+                        .height(barHeight - 8.dp)
                         .padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     content = content,
@@ -416,7 +360,6 @@ fun FloatingBottomBar(
                                     chromaticAberration = 0.5f,
                                 )
                             },
-                            highlight = { pillHighlight.value.copy(alpha = dampedDragAnimation.pressProgress) },
                             layerBlock = {
                                 scaleX = dampedDragAnimation.scaleX
                                 scaleY = dampedDragAnimation.scaleY
@@ -431,6 +374,8 @@ fun FloatingBottomBar(
                                     alpha = 1f - progress,
                                 )
                                 drawRect(Color.Black.copy(alpha = 0.03f * progress))
+                                // 高光层（原 highlight 参数迁移）
+                                drawEdgeStroke(pillShape, highlightStroke, alpha = progress)
                             },
                         )
                         .innerShadow(shape = pillShape) {
@@ -440,7 +385,7 @@ fun FloatingBottomBar(
                                 alpha = dampedDragAnimation.pressProgress,
                             )
                         }
-                        .height(56.dp)
+                        .height(barHeight - 8.dp)
                         .width(tabWidth),
                 )
             } else {
@@ -454,7 +399,7 @@ fun FloatingBottomBar(
                         .then(dampedDragAnimation.modifier)
                         .clip(pillShape)
                         .background(accentColor.copy(alpha = 0.15f), pillShape)
-                        .height(56.dp)
+                        .height(barHeight - 8.dp)
                         .width(tabWidth),
                     contentAlignment = Alignment.CenterStart,
                 ) {
@@ -464,7 +409,7 @@ fun FloatingBottomBar(
                                 .clearAndSetSemantics {}
                                 .wrapContentWidth(align = Alignment.Start, unbounded = true)
                                 .requiredWidth(with(density) { (totalWidthPx - 8.dp.toPx()).toDp() })
-                                .height(56.dp)
+                                .height(barHeight - 8.dp)
                                 .graphicsLayer {
                                     val progressOffset = dampedDragAnimation.value * tabWidthPx
                                     translationX = if (isLtr) -progressOffset else progressOffset

@@ -5,6 +5,7 @@ import com.app.market.data.install.InstallPipelineException
 import com.app.market.data.install.patch.DeltaPatchEngine
 import com.app.market.data.install.storage.MediaStorePackageStore
 import com.app.market.data.platform.debugLog
+import com.app.market.domain.diagnostic.AppLog
 import com.app.market.domain.model.install.InstallArtifact
 import com.app.market.domain.model.install.InstallFailureCode
 import com.app.market.domain.model.install.InstallSource
@@ -27,12 +28,12 @@ import java.security.MessageDigest
 import kotlin.coroutines.coroutineContext
 
 /** 暂存数据与远端不一致（Range 被拒 / 校验失败），需要清空重下。 */
-private class StaleStagingException : Exception()
-
+internal class StaleStagingException : Exception()
 internal class ArtifactSourceReader(
     private val http: InstallHttpClient,
     private val packageStore: MediaStorePackageStore,
     private val deltaFallbacks: DeltaFallbackBus,
+    private val segmentedDownloader: SegmentedDownloader,
 ) {
     /**
      * 确保 [artifact] 完整落在 [target]（增量补丁暂存在 [patchTarget]）；已有字节走 Range 续传。
@@ -89,11 +90,13 @@ internal class ArtifactSourceReader(
         } catch (_: StaleStagingException) {
             // 暂存与远端不一致：清空重下一次；仍不一致按完整性错误上抛
             target.delete()
+            segmentedDownloader.clearState(target)
             onBytes(0L)
             try {
                 stageRemoteAttempt(source, target, expectedSize, checksum, onBytes)
             } catch (_: StaleStagingException) {
                 target.delete()
+                segmentedDownloader.clearState(target)
                 throw InstallPipelineException(
                     InstallFailureCode.INTEGRITY,
                     "Checksum mismatch for ${target.name}",
@@ -102,7 +105,7 @@ internal class ArtifactSourceReader(
         }
     }
 
-    /** 全新下载用滚动摘要；续传改为完成后整文件校验一次，避免恢复前先重放已下载的几百 MB。 */
+    /** 全新单连接下载用滚动摘要；续传与分片下载改为完成后整文件校验一次，避免恢复前先重放已下载的几百 MB。 */
     private suspend fun stageRemoteAttempt(
         source: InstallSource.Remote,
         target: File,
@@ -110,9 +113,18 @@ internal class ArtifactSourceReader(
         checksum: String,
         onBytes: suspend (Long) -> Unit,
     ) {
+        val verifiesChecksum = checksum.isNotBlank()
+        val segmentedBytes = segmentedDownloader.download(source.url, source.headers, target, expectedSize, onBytes)
+        if (segmentedBytes != null) {
+            // 分片写入乱序，无法维持滚动摘要，统一完成后整文件校验
+            if (verifiesChecksum) {
+                val digest = messageDigest(checksum).also { streamThroughDigest(target, it) }
+                if (!digestMatches(digest, checksum)) throw StaleStagingException()
+            }
+            return
+        }
         if (expectedSize in 1..<target.length()) throw StaleStagingException()
         val existing = target.takeIf { it.isFile }?.length() ?: 0L
-        val verifiesChecksum = checksum.isNotBlank()
         val rollingDigest = checksum.takeIf { verifiesChecksum && existing == 0L }?.let(::messageDigest)
         var transferred = existing
         if (existing > 0L) onBytes(existing)
@@ -227,9 +239,11 @@ internal class ArtifactSourceReader(
                 error
             }
             debugLog("DeltaPatch") { "Falling back to full download for ${artifact.name}: ${failure.message}" }
+            AppLog.log("DeltaFallback: ${artifact.name} -> full download, reason=${failure.message}")
             deltaFallbacks.emit(artifact.name, failure.message.orEmpty())
         } else {
             debugLog("DeltaPatch") { "Base APK unreadable for ${artifact.name}, downloading full package" }
+            AppLog.log("DeltaFallback: ${artifact.name} -> full download, reason=base APK unreadable")
             deltaFallbacks.emit(artifact.name, "base APK unreadable")
         }
         // 只丢补丁：target 装的是上次降级留下的整包续传进度（合成走 .delta.tmp，不会是半成品）

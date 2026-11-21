@@ -22,6 +22,7 @@ data class TodayUiState(
     val articleLoading: Boolean = false,
     val articleError: String = "",
     val feedLoading: Boolean = true,
+    val feedRefreshingByPull: Boolean = false,
     val feedLoadingMore: Boolean = false,
     val feedError: String = "",
 )
@@ -38,6 +39,14 @@ class TodayViewModel(
     private var activeSource = prefs.todaySource.value
     private var sourceGeneration = 0L
     private var nextFeedPage = 0
+    private var lastFeedFailureWasRefresh = false
+    private var pageVisible = false
+    private val refreshedSources = mutableSetOf<AppSource>()
+
+    fun setPageVisible(visible: Boolean) {
+        pageVisible = visible
+        if (visible && !_uiState.value.feedLoading && refreshedSources.add(activeSource)) loadTodayData()
+    }
     private val _uiState = MutableStateFlow(TodayUiState(source = prefs.todaySource.value))
     val uiState = _uiState.asStateFlow()
 
@@ -53,7 +62,6 @@ class TodayViewModel(
         val generation = sourceGeneration
         viewModelScope.launch {
             _uiState.update { it.copy(feedLoading = true, feedError = "") }
-            nextFeedPage = 0
             loadFeedPage(source, generation, replace = true)
         }
     }
@@ -70,10 +78,21 @@ class TodayViewModel(
         }
     }
 
+    /** 切换今日来源：写入偏好后由 [prefs.todaySource] 流驱动 [switchSource] 重载。 */
+    fun switchTodaySource(value: AppSource) {
+        viewModelScope.launch { prefs.setTodaySource(value) }
+    }
+    fun refreshFeed() {
+        if (!_uiState.value.feedLoading && !_uiState.value.feedLoadingMore) {
+            _uiState.update { it.copy(feedRefreshingByPull = true) }
+            loadTodayData()
+        }
+    }
+
     fun retryFeed() {
         val snapshot = _uiState.value
         if (snapshot.feedLoading || snapshot.feedLoadingMore) return
-        if (snapshot.feed.items.isEmpty()) loadTodayData() else loadMore()
+        if (snapshot.feed.items.isEmpty() || lastFeedFailureWasRefresh) loadTodayData() else loadMore()
     }
 
     private suspend fun switchSource(source: AppSource) {
@@ -83,18 +102,32 @@ class TodayViewModel(
         articleCache.clear()
         loadingArticleId = null
         _uiState.value = TodayUiState(source = source)
-        loadFeedPage(source, sourceGeneration, replace = true)
+        val generation = sourceGeneration
+        val cached = runCatchingCancellable { prefs.readPageCache("today_${source.token}") }.getOrNull()
+            ?.let(PageCacheCodec::decodeToday)
+        if (source != activeSource || generation != sourceGeneration) return
+        if (cached != null) {
+            nextFeedPage = cached.second
+            _uiState.value = TodayUiState(source = source, feed = cached.first, feedLoading = false)
+        } else {
+            _uiState.value = TodayUiState(source = source, feedLoading = false)
+        }
+        if (pageVisible && refreshedSources.add(source)) {
+            _uiState.update { it.copy(feedLoading = true) }
+            loadFeedPage(source, generation, replace = true)
+        }
     }
 
     private suspend fun loadFeedPage(source: AppSource, generation: Long, replace: Boolean) {
-        val requestedPage = nextFeedPage
+        val requestedPage = if (replace) 0 else nextFeedPage
         val result = runCatchingCancellable { sources.goldMiFeed(source, requestedPage) }
         if (source != activeSource || generation != sourceGeneration) return
         val page = result.getOrNull()
-        if (page != null && requestedPage == nextFeedPage) nextFeedPage++
+        lastFeedFailureWasRefresh = page == null && replace
+        if (page != null) nextFeedPage = requestedPage + 1
 
         _uiState.update { before ->
-            val existing = if (replace) emptyList() else before.feed.items
+            val existing = if (replace && page != null) emptyList() else before.feed.items
             val existingKeys = existing.mapTo(HashSet(), TodayFeaturedItem::feedKey)
             val appended = page?.items.orEmpty().filter { existingKeys.add(it.feedKey()) }
             before.copy(
@@ -104,9 +137,14 @@ class TodayViewModel(
                     hasMore = page?.hasMore ?: before.feed.hasMore,
                 ),
                 feedLoading = false,
+                feedRefreshingByPull = false,
                 feedLoadingMore = false,
                 feedError = result.exceptionOrNull()?.message.orEmpty(),
             )
+        }
+        if (page != null) {
+            val snapshot = _uiState.value.feed
+            runCatchingCancellable { prefs.writePageCache("today_${source.token}", PageCacheCodec.encodeToday(snapshot, nextFeedPage)) }
         }
     }
 
@@ -127,14 +165,20 @@ class TodayViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(article = null, articleLoading = true, articleError = "") }
             runCatchingCancellable {
-                sources.todayArticle(source, topicId).also { article ->
-                    check(article.hasRenderableContent()) { "Today article $topicId has no content" }
-                }
+                sources.todayArticle(source, topicId)
             }.onSuccess { article ->
                 if (source != activeSource || generation != sourceGeneration) return@onSuccess
-                articleCache[cacheKey] = article
+                // 没有图文内容也算正常返回：给友好提示，不要当错误页
+                val renderable = article.hasRenderableContent()
+                if (renderable) articleCache[cacheKey] = article
                 if (loadingArticleId == cacheKey) {
-                    _uiState.update { it.copy(article = article, articleLoading = false) }
+                    _uiState.update {
+                        it.copy(
+                            article = article,
+                            articleLoading = false,
+                            articleError = if (renderable) "" else "该推荐暂无图文内容",
+                        )
+                    }
                 }
             }.onFailure { error ->
                 if (source == activeSource && generation == sourceGeneration && loadingArticleId == cacheKey) {
@@ -159,4 +203,3 @@ private fun TodayArticle.hasRenderableContent(): Boolean =
     blocks.isNotEmpty() || headerImage.isNotBlank() || richTextHtml.isNotBlank() || apps.isNotEmpty()
 
 private fun TodayFeaturedItem.feedKey(): String = rId.ifBlank { articleLink }
-

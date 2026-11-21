@@ -1,5 +1,6 @@
 package com.app.market.ui.screen
 
+import com.app.market.ui.util.toPlainStoreText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.animation.animateContentSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -35,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.app.market.domain.model.market.AppSource
 import com.app.market.domain.model.update.UpdateHistoryEntry
 import com.app.market.resources.Res
 import com.app.market.resources.cancel
@@ -52,11 +55,19 @@ import com.app.market.resources.update_history_first_install
 import com.app.market.ui.component.AppIcon
 import com.app.market.ui.component.AppTextButton
 import com.app.market.ui.component.CardSegmentContainer
+import com.app.market.ui.component.HistoryRecordRow
 import com.app.market.ui.component.MarketScaffold
 import com.app.market.ui.component.PageVerticalPadding
+import com.app.market.ui.component.HistoryDetailDialog
+import com.app.market.ui.component.LsposedModuleIconMarker
+import com.app.market.ui.component.SelfAppIconMarker
+import com.app.market.viewmodel.SELF_UPDATE_APP_ID
 import com.app.market.ui.component.SectionTitle
 import com.app.market.ui.util.appDisplayName
+import com.app.market.ui.util.appSourceLabel
+import com.app.market.ui.util.appSourceBrandColor
 import com.app.market.ui.util.currentLocalDate
+import com.app.market.ui.util.formatDateTimeFull
 import com.app.market.ui.util.formatTimeHm
 import com.app.market.ui.util.localDateOf
 import com.app.market.viewmodel.UpdateHistoryViewModel
@@ -74,6 +85,7 @@ import top.yukonga.miuix.kmp.icon.extended.Delete
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import top.yukonga.miuix.kmp.utils.scrollEndHaptic
+import com.app.market.ui.theme.PopupTheme
 import top.yukonga.miuix.kmp.window.WindowDialog
 
 /** 同一天的历史记录分组（[entries] 保持新→旧）。 */
@@ -87,6 +99,8 @@ fun UpdateHistoryScreen(
 ) {
     val entries by viewModel.entries.collectAsStateWithLifecycle()
     var showClearDialog by rememberSaveable { mutableStateOf(false) }
+    // 点卡片看这条更新记录的详情，不再直接跳应用详情页
+    var detailEntry by remember { mutableStateOf<UpdateHistoryEntry?>(null) }
 
     MarketScaffold(
         title = stringResource(Res.string.update_history),
@@ -155,14 +169,14 @@ fun UpdateHistoryScreen(
                         isLast = index == group.entries.lastIndex,
                         modifier = Modifier.animateItem(placementSpec = null),
                     ) {
-                        HistoryRow(entry = entry, onOpenDetail = onOpenDetail)
+                        HistoryRow(entry = entry, onShowDetail = { detailEntry = it })
                     }
                 }
             }
         }
     }
 
-    WindowDialog(
+    PopupTheme { WindowDialog(
         show = showClearDialog,
         title = stringResource(Res.string.update_history_clear),
         summary = stringResource(Res.string.update_history_clear_confirm),
@@ -185,6 +199,29 @@ fun UpdateHistoryScreen(
                 },
             )
         }
+    } }
+
+    detailEntry?.let { entry ->
+        HistoryDetailDialog(
+            title = appDisplayName(entry.displayName, entry.source, entry.localLabel),
+            packageName = entry.packageName,
+            rows = listOf(
+                "版本变化" to if (entry.previousVersionName.isEmpty()) {
+                    "首次安装 " + entry.versionName
+                } else {
+                    "${entry.previousVersionName} → ${entry.versionName}"
+                },
+                "版本号" to entry.versionCode.takeIf { it > 0L }?.toString().orEmpty(),
+                "时间" to formatDateTimeFull(entry.installedAt),
+            ),
+            onDismiss = { detailEntry = null },
+            sourceLabel = entry.source?.let { appSourceLabel(it) },
+            onOpenSource = {
+                detailEntry = null
+                onOpenDetail(entry)
+            },
+            exportPrefix = "update",
+        )
     }
 }
 
@@ -201,63 +238,51 @@ private fun dayLabel(date: LocalDate): String {
 @Composable
 private fun HistoryRow(
     entry: UpdateHistoryEntry,
-    onOpenDetail: (UpdateHistoryEntry) -> Unit,
+    onShowDetail: (UpdateHistoryEntry) -> Unit,
 ) {
     Column(
         Modifier
             .fillMaxWidth()
-            .clickable { onOpenDetail(entry) }
-            .padding(16.dp),
+            .clickable { onShowDetail(entry) },
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AppIcon(
-                url = entry.icon,
-                contentDescription = appDisplayName(entry.displayName, entry.source),
-                size = 48.dp,
-            )
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(
-                    text = appDisplayName(entry.displayName, entry.source),
-                    style = MiuixTheme.textStyles.headline1,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    if (entry.previousVersionName.isEmpty()) {
-                        stringResource(Res.string.update_history_first_install, entry.versionName)
-                    } else {
-                        "${entry.previousVersionName} → ${entry.versionName}"
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-                )
-            }
-            Text(
-                formatTimeHm(entry.installedAt),
-                style = MiuixTheme.textStyles.body2,
-                color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
-            )
-        }
-        if (entry.changeLog.isNotBlank()) {
+        HistoryRecordRow(
+            // LSPosed 模块统一内置图标，不显示作者头像 / README 首图
+            icon = when {
+            // AppMarket 自己的记录（自更新）没有网络图标，用内置启动图标
+            entry.appId == SELF_UPDATE_APP_ID -> SelfAppIconMarker
+            entry.source == AppSource.LSPOSED -> LsposedModuleIconMarker
+            else -> entry.icon
+        },
+            title = appDisplayName(entry.displayName, entry.source, entry.localLabel),
+            subtitle = if (entry.previousVersionName.isEmpty()) {
+                stringResource(Res.string.update_history_first_install, entry.versionName)
+            } else {
+                "${entry.previousVersionName} → ${entry.versionName}"
+            },
+            time = formatTimeHm(entry.installedAt),
+            sourceLabel = entry.source?.let { appSourceLabel(it) },
+            sourceColor = entry.source?.let { appSourceBrandColor(it) } ?: MiuixTheme.colorScheme.primary,
+        )
+        val entryLog = entry.changeLog.toPlainStoreText()
+    if (entryLog.isNotBlank()) {
             var expanded by rememberSaveable(entry.packageName, entry.installedAt) { mutableStateOf(false) }
             // 三态：null 表示尚未完成首次文本测量，避免「展开」在测量前闪现
             var hasVisualOverflow by remember(entry.packageName, entry.installedAt) {
                 mutableStateOf<Boolean?>(null)
             }
             val collapsedChangeLog = remember(entry.changeLog) {
-                entry.changeLog.replace(WhitespaceRegex, " ").trim()
+                entryLog.replace(WhitespaceRegex, " ").trim()
             }
             val changeLogStyle = MiuixTheme.textStyles.body2
-            Box(Modifier.fillMaxWidth()) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .animateContentSize(),
+            ) {
                 Text(
-                    text = if (expanded) entry.changeLog else collapsedChangeLog,
+                    text = if (expanded) entryLog else collapsedChangeLog,
                     style = changeLogStyle,
                     color = MiuixTheme.colorScheme.onSurfaceSecondary,
                     maxLines = if (expanded) Int.MAX_VALUE else 1,
@@ -299,6 +324,8 @@ private fun HistoryRow(
                     text = stringResource(Res.string.collapse_change_log),
                     modifier = Modifier
                         .align(Alignment.End)
+                        .padding(horizontal = 16.dp)
+                        .padding(bottom = 12.dp)
                         .clickable(interactionSource = null, indication = null) {
                             expanded = false
                         },

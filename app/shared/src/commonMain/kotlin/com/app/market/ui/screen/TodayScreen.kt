@@ -69,6 +69,8 @@ import com.app.market.ui.component.AppButton
 import com.app.market.ui.component.AppIcon
 import com.app.market.ui.component.HidingMainTabScaffold
 import com.app.market.ui.component.LoadingBox
+import com.app.market.ui.util.appSourceLabel
+import com.app.market.ui.widget.MiuixDropdown
 import com.app.market.ui.component.PageVerticalPadding
 import com.app.market.ui.theme.LocalEnableFloatingBottomBar
 import com.app.market.ui.util.appDisplayName
@@ -82,6 +84,8 @@ import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.CardDefaults
 import top.yukonga.miuix.kmp.basic.InfiniteProgressIndicator
+import top.yukonga.miuix.kmp.basic.PullToRefresh
+import top.yukonga.miuix.kmp.basic.rememberPullToRefreshState
 import top.yukonga.miuix.kmp.basic.Text
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
@@ -105,14 +109,9 @@ fun TodayTab(
     val currentState by rememberUpdatedState(state)
     val pendingUpdates =
         if (updateState != null && !updateState.loading) updateState.updates else emptyList()
-    val showUpdatesCard = pendingUpdates.isNotEmpty()
+    // 今日页不再展示「应用待更新」卡片（更新统一去「更新」页看）
     val enableFloatingBottomBar = LocalEnableFloatingBottomBar.current
 
-    LaunchedEffect(showUpdatesCard) {
-        if (listState.firstVisibleItemIndex <= 1 && listState.firstVisibleItemScrollOffset == 0) {
-            listState.requestScrollToItem(0)
-        }
-    }
 
     LaunchedEffect(listState, viewModel) {
         snapshotFlow {
@@ -140,59 +139,47 @@ fun TodayTab(
         },
     ) { topPadding, backdropModifier, scrollBehavior ->
         val initialLoading = state.feedLoading && state.feed.items.isEmpty()
-        Crossfade(
-            targetState = initialLoading,
+        // 今日来源快捷切换：与搜索页同款下拉，切换后立即重载今日内容
+        val todaySourceOptions = com.app.market.domain.model.market.AppSource.orderLikeUpdateSources(
+            com.app.market.domain.model.market.AppSource.entries.filter { it.capabilities.supportsTodayFeed }
+        )
+        val todaySourceIndex = todaySourceOptions.indexOf(state.source).coerceAtLeast(0)
+        val refreshState = rememberPullToRefreshState()
+        PullToRefresh(
+            isRefreshing = state.feedRefreshingByPull,
+            onRefresh = viewModel::refreshFeed,
+            pullToRefreshState = refreshState,
+            // contentPadding 的顶部值用来定位刷新图标：对齐标题栏下沿，别吸在屏幕顶端
+            contentPadding = PaddingValues(top = topPadding),
+            refreshTexts = listOf("", "", "", ""),
+        ) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(TodayGridMinCellWidth),
+            state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .background(MiuixTheme.colorScheme.surface)
-                .then(backdropModifier),
-            label = "today",
-        ) { loading ->
-            if (loading) {
-                LoadingBox(
-                    Modifier.fillMaxSize().padding(
-                        top = topPadding + PageVerticalPadding,
-                        bottom = bottomPadding + PageVerticalPadding,
-                    ),
-                )
-                return@Crossfade
-            }
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(TodayGridMinCellWidth),
-                state = listState,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .scrollEndHaptic()
-                    .overScrollVertical()
-                    .nestedScroll(scrollBehavior.nestedScrollConnection),
-                contentPadding = PaddingValues(
-                    start = 12.dp,
-                    end = 12.dp,
-                    top = topPadding + PageVerticalPadding,
-                    bottom = bottomPadding + PageVerticalPadding,
-                ),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                if (showUpdatesCard) {
-                    item(
-                        key = "updates",
-                        span = { GridItemSpan(maxLineSpan) },
-                    ) {
-                        var pendingCardVisible by remember { mutableStateOf(false) }
-                        LaunchedEffect(Unit) { pendingCardVisible = true }
-                        AnimatedVisibility(
-                            visible = pendingCardVisible,
-                            enter = fadeIn(tween(220)) +
-                                    expandVertically(tween(300), expandFrom = Alignment.Top),
-                        ) {
-                            PendingUpdatesCard(
-                                updates = pendingUpdates,
-                                onClick = onClickViewUpdates,
-                                modifier = Modifier.padding(bottom = 20.dp),
-                            )
-                        }
-                    }
+                .scrollEndHaptic()
+                .overScrollVertical()
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
+            contentPadding = PaddingValues(
+                start = 12.dp,
+                end = 12.dp,
+                top = topPadding + PageVerticalPadding,
+                bottom = bottomPadding + PageVerticalPadding,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            item(span = { GridItemSpan(maxLineSpan) }) {
+                Box(Modifier.fillMaxWidth().padding(bottom = 4.dp)) {
+                    MiuixDropdown(
+                        items = todaySourceOptions.map { appSourceLabel(it) },
+                        selectedIndex = todaySourceIndex,
+                        onSelectedIndexChange = { index ->
+                            viewModel.switchTodaySource(todaySourceOptions[index])
+                        },
+                    )
                 }
+            }
                 items(state.feed.items, key = { "feed-${it.rId.ifBlank { it.articleLink }}" }) { item ->
                     FeaturedArticleCard(
                         item = item,
@@ -234,7 +221,7 @@ fun TodayTab(
                         )
                     }
                 }
-            }
+        }
         }
     }
 }
@@ -340,7 +327,7 @@ private fun StaticIconRow(
             ) {
                 AppIcon(
                     url = app.icon,
-                    contentDescription = appDisplayName(app.displayName, app.source),
+                    contentDescription = appDisplayName(app),
                     size = iconSize,
                 )
             }
@@ -413,7 +400,7 @@ internal fun ScrollingIconRow(
                         AppIcon(
                             url = app.icon,
                             contentDescription = if (copyIndex == 0 && index < apps.size) {
-                                appDisplayName(app.displayName, app.source)
+                                appDisplayName(app)
                             } else {
                                 null
                             },
@@ -456,7 +443,7 @@ internal fun AdaptiveAppIconRow(
                 apps.forEach { app ->
                     AppIcon(
                         url = app.icon,
-                        contentDescription = appDisplayName(app.displayName, app.source),
+                        contentDescription = appDisplayName(app),
                         size = iconSize,
                     )
                 }
@@ -591,7 +578,7 @@ private fun EditorialFeatureContent(
     item: TodayFeaturedItem,
     modifier: Modifier = Modifier,
 ) {
-    val label = item.awardName.ifBlank { stringResource(Res.string.golden_award) }
+    val label = item.awardName.ifBlank { "今日推荐" }
     val appName = (item.app ?: item.apps.singleOrNull())?.displayName
     Column(
         modifier = modifier
@@ -621,12 +608,12 @@ private fun AppFeatureContent(
     ) {
         AppIcon(
             url = app.icon,
-            contentDescription = appDisplayName(app.displayName, app.source),
+            contentDescription = appDisplayName(app),
             size = 48.dp,
         )
         Column(Modifier.weight(1f)) {
             Text(
-                text = appDisplayName(app.displayName, app.source),
+                text = appDisplayName(app),
                 color = MiuixTheme.colorScheme.onPrimary,
                 style = MiuixTheme.textStyles.headline1.copy(
                     fontWeight = FontWeight.Medium,

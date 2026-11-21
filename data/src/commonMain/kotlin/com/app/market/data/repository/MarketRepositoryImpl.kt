@@ -60,6 +60,10 @@ internal class MarketRepositoryImpl(
         result
     }
 
+    override suspend fun categoryApps(categoryId: Int, page: Int): SearchPage = withContext(Dispatchers.Default) {
+        api.categoryApps(categoryId, page)
+    }
+
     override suspend fun appDetail(
         appId: Long,
         packageName: String,
@@ -130,13 +134,25 @@ internal class MarketRepositoryImpl(
             )
         }.flowOn(Dispatchers.Default)
 
+    override suspend fun loadRawCachedUpdates(): List<MarketAppInfo> = withContext(Dispatchers.Default) {
+        updatePrefs.loadCachedUpdates()
+    }
+
     override suspend fun loadReconciledCachedUpdates(): List<MarketAppInfo> = withContext(Dispatchers.Default) {
         val cached = updatePrefs.loadCachedUpdates()
         if (cached.isEmpty()) return@withContext cached
-        // null = scan failed / no permission: nothing to reconcile against, so show the cache as-is.
-        val installed = runCatching { installedPackages.installed() }.getOrNull()
-            ?: return@withContext cached
-        reconcileCachedUpdates(cached, installed)
+        // 不做全量扫描：缓存就几十条，按缓存里的包名逐个直查（getPackageInfo 级别）就够，
+        // 比 installed() 那种整机枚举快一两个数量级，也不用等它那 1~2 秒。
+        val installed = cached.mapNotNull { app ->
+            runCatching { installedPackages.installedPackage(app.packageName) }.getOrNull()
+        }
+        val reconciled = reconcileCachedUpdates(cached, installed)
+        // 对账后条目变少（本地版本已追平/超过，或应用已卸载）：把结果写回磁盘，
+        // 下次进入不用重复对账，缓存里也不会留着已经装好的条目。
+        if (reconciled.size != cached.size) {
+            runCatching { updatePrefs.saveCachedUpdates(reconciled) }
+        }
+        reconciled
     }
 
     override suspend fun checkManualUpdate(request: ManualUpdateRequest): ManualUpdateResult = withContext(Dispatchers.Default) {

@@ -70,13 +70,17 @@ internal object InstallNotifications {
         val shortText: String get() = percent?.let { "$it%" } ?: text
     }
 
-    fun ongoingContent(context: Context, active: List<DownloadState>): OngoingContent {
+    fun ongoingContent(
+        context: Context,
+        active: List<DownloadState>,
+        displayNameOf: (DownloadState) -> String = { it.displayName },
+    ): OngoingContent {
         val single = active.singleOrNull()
         if (single != null) {
             return OngoingContent(
-                title = single.displayName,
+                title = displayNameOf(single),
                 text = phaseLabel(context, single.phase),
-                percent = single.progress?.takeIf { single.phase != DownloadPhase.INSTALLING },
+                percent = single.progress?.takeIf { single.phase != DownloadPhase.INSTALLING }?.toInt(),
                 installing = single.phase == DownloadPhase.INSTALLING,
                 cancelablePackage = single.packageName.takeIf {
                     single.phase in setOf(DownloadPhase.QUEUED, DownloadPhase.DOWNLOADING)
@@ -90,9 +94,9 @@ internal object InstallNotifications {
         val representative = active.maxByOrNull { downloadRank(it) } ?: active.first()
         val completed = active.count { downloadRank(it) >= 100 }
         return OngoingContent(
-            title = representative.displayName,
+            title = displayNameOf(representative),
             text = context.getString(R.string.notif_multi_progress, completed, active.size),
-            percent = representative.progress?.takeIf { representative.phase != DownloadPhase.INSTALLING },
+            percent = representative.progress?.takeIf { representative.phase != DownloadPhase.INSTALLING }?.toInt(),
             installing = representative.phase == DownloadPhase.INSTALLING,
             cancelablePackage = null,
             iconUrl = representative.icon,
@@ -103,7 +107,7 @@ internal object InstallNotifications {
     }
 
     private fun downloadRank(state: DownloadState): Int =
-        if (state.phase == DownloadPhase.INSTALLING) 100 else state.progress ?: 0
+        if (state.phase == DownloadPhase.INSTALLING) 100 else state.progress?.toInt() ?: 0
 
     // promoteLiveUpdate=false 时走普通进度条：与超级岛互斥，避免两套胶囊机制并存打架。
     fun ongoing(
@@ -115,13 +119,17 @@ internal object InstallNotifications {
         val builder = progressBuilder(context)
             .setContentTitle(content.title)
             .setContentText(content.text)
-            .setContentIntent(
-                if (content.multiple) downloadsIntent(context)
-                else detailIntent(context, content.packageName)
-            )
+            // 点通知直接进下载管理页（不再进应用详情页）
+            .setContentIntent(downloadsIntent(context))
         largeIcon?.let(builder::setLargeIcon)
 
         content.cancelablePackage?.let { packageName ->
+            // 暂停 + 取消 双动作：暂停保留任务可续传；取消移除任务与暂存（与下载管理一致）
+            builder.addAction(
+                0,
+                context.getString(R.string.notif_action_pause),
+                pauseIntent(context, packageName),
+            )
             builder.addAction(
                 0,
                 context.getString(R.string.notif_action_cancel),
@@ -236,6 +244,15 @@ internal object InstallNotifications {
                 .putExtra(InstallNotificationActionReceiver.EXTRA_PACKAGE_NAME, packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+    fun pauseIntent(context: Context, packageName: String): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            packageName.hashCode() + 1,
+            Intent(context, InstallNotificationActionReceiver::class.java)
+                .setAction(InstallNotificationActionReceiver.ACTION_PAUSE)
+                .putExtra(InstallNotificationActionReceiver.EXTRA_PACKAGE_NAME, packageName),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
 
     // Android 16 Live Update：分段 ProgressStyle + 简短文本 + 申请晋升为常驻胶囊。
     private fun applyLiveUpdate(builder: NotificationCompat.Builder, content: OngoingContent) {
@@ -278,7 +295,8 @@ internal object InstallNotifications {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-    // 多任务下载时跳「下载中的应用」页；复用 MainActivity 的 market://downloads 深链
+    // 进度/岛通知的点击目标：「下载中的应用」页（直接打开，不经过详情页）；
+    // 复用 MainActivity 的 market://downloads 深链 + singleTask，不新建实例。
     private fun downloadsIntent(context: Context): PendingIntent =
         PendingIntent.getActivity(
             context,
@@ -288,24 +306,12 @@ internal object InstallNotifications {
                 Uri.parse("market://downloads"),
                 context,
                 MainActivity::class.java,
+            ).addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP
             ),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
-    // 点通知/岛跳转到该应用详情页；复用 MainActivity 的 market://details 深链
-    private fun detailIntent(context: Context, packageName: String): PendingIntent {
-        if (packageName.isBlank()) return openAppIntent(context)
-        val intent = Intent(
-            Intent.ACTION_VIEW,
-            Uri.parse("market://details?id=$packageName"),
-            context,
-            MainActivity::class.java,
-        )
-        return PendingIntent.getActivity(
-            context,
-            packageName.hashCode(),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
 }

@@ -1,5 +1,6 @@
 package com.app.market.platform
 
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.ContentValues
 import android.content.Context
@@ -15,7 +16,9 @@ import android.provider.MediaStore
 import android.provider.Settings
 import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -23,8 +26,53 @@ import java.net.URL
 class AndroidUiPlatform(
     private val context: Context,
     private val permissions: AndroidPermissionCoordinator,
+    private val saveLocations: AndroidSaveLocationCoordinator,
 ) : UiPlatform {
     override val packageInstallationSupported: Boolean = true
+
+    // 仅比较剪贴板描述的时间戳：读描述不会触发系统「已粘贴」提示，内容没变就不读正文
+    private var lastClipTimestamp = -1L
+
+    override suspend fun readNewClipboardText(): String? {
+        val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return null
+        val description = clipboard.primaryClipDescription ?: return null
+        if (!description.hasMimeType("text/*")) return null
+        if (description.timestamp == lastClipTimestamp) return null
+        lastClipTimestamp = description.timestamp
+        return clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+    }
+    override suspend fun readClipboardText(): String? {
+        val clipboard = context.getSystemService(ClipboardManager::class.java) ?: return null
+        val description = clipboard.primaryClipDescription
+        if (description != null && description.hasMimeType("text/*")) {
+            // 同步时间戳：主动读过之后，链接识别提示不再对同一份内容重复弹
+            lastClipTimestamp = description.timestamp
+        }
+        return clipboard.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()
+    }
+
+    override fun shareText(text: String): ShareResult {
+        val send = Intent(Intent.ACTION_SEND)
+            .setType("text/plain")
+            .putExtra(Intent.EXTRA_TEXT, text)
+        val chooser = Intent.createChooser(send, null).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        return if (runCatching { context.startActivity(chooser) }.isSuccess) ShareResult.Shared else ShareResult.Failed
+    }
+
+    override suspend fun exportLogFile(fileName: String, content: String): String? =
+        withContext(Dispatchers.IO) {
+            runCatching {
+                // 失败日志落到 Download/AppMarket/logs，用户直接从文件管理器取走
+                val dir = File(
+                    Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS),
+                    "AppMarket/logs",
+                )
+                dir.mkdirs()
+                val file = File(dir, fileName)
+                file.writeText(content)
+                file.absolutePath
+            }.getOrNull()
+        }
 
     override fun showToast(message: String) {
         if (Looper.myLooper() == Looper.getMainLooper()) {
@@ -87,6 +135,21 @@ class AndroidUiPlatform(
     override fun requestInstalledAppsPermission(onResult: (Boolean) -> Unit): Boolean =
         permissions.requestInstalledApps(onResult)
 
+    override suspend fun pickSaveUri(fileName: String, mimeType: String): String? =
+        suspendCancellableCoroutine { cont ->
+            val started = saveLocations.pick(mimeType, fileName) { uri ->
+                if (cont.isActive) cont.resume(uri)
+            }
+            if (!started && cont.isActive) cont.resume(null)
+        }
+
+    override suspend fun pickDirectoryPath(): String? =
+        suspendCancellableCoroutine { cont ->
+            val started = saveLocations.pickDirectory { path ->
+                if (cont.isActive) cont.resume(path)
+            }
+            if (!started && cont.isActive) cont.resume(null)
+        }
     override fun requestPostNotificationsPermission(onResult: () -> Unit): Boolean =
         permissions.requestNotifications(onResult)
 

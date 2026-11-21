@@ -12,11 +12,15 @@ import com.app.market.R
 import com.app.market.data.install.HyperOsFocusCapability
 import com.app.market.domain.model.download.DownloadPhase
 import com.app.market.domain.model.download.DownloadState
+import com.app.market.domain.model.market.AppSource
 import com.app.market.domain.repository.DownloadRepository
 import com.app.market.domain.repository.InstallerPreferencesRepository
+import com.app.market.domain.repository.UpdatePreferencesRepository
+import com.app.market.ui.util.splitAppDisplayName
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
@@ -29,6 +33,7 @@ internal class InstallNotificationCoordinator(
     private val context: Context,
     private val downloads: DownloadRepository,
     private val preferences: InstallerPreferencesRepository,
+    private val updatePrefs: UpdatePreferencesRepository,
     private val firewall: XmsfFirewallGate,
     private val icons: NotificationIconLoader,
 ) {
@@ -64,6 +69,7 @@ internal class InstallNotificationCoordinator(
     init {
         InstallNotifications.createChannels(context)
         scope.launch { firewall.sweepLeakedRule() }
+        watchNotificationStyle()
         scope.launch {
             merge(
                 downloads.states.map { Event.States(it) },
@@ -80,7 +86,19 @@ internal class InstallNotificationCoordinator(
     fun foregroundNotification(): Notification {
         val active = downloads.states.value.values.filter { it.phase in ActivePhases }
         if (active.isEmpty()) return InstallNotifications.preparing(context)
-        return InstallNotifications.ongoing(context, InstallNotifications.ongoingContent(context, active)).build()
+        return InstallNotifications.ongoing(context, InstallNotifications.ongoingContent(context, active) {
+            tracked[it.packageName]?.displayName ?: it.displayName
+        }).build()
+    }
+
+    /** 通知显示名：开关「获取真实应用名」开时优先本地真实 label；否则就地裁剪商店名宣传语。 */
+    private suspend fun realName(packageName: String, raw: String, source: AppSource?): String {
+        val label = if (updatePrefs.stripAppNameSubtitle.value) {
+            runCatching { com.app.market.data.platform.installedAppLabel(packageName) }.getOrNull()?.ifBlank { null }
+        } else {
+            null
+        }
+        return label ?: raw.splitAppDisplayName(source).appName
     }
 
     fun onForegroundChanged(active: Boolean) {
@@ -110,7 +128,12 @@ internal class InstallNotificationCoordinator(
         val icon = downloads.states.value[packageName]?.icon?.let { icons.remoteIcon(it) }
         notificationManager.notify(
             InstallNotifications.alertId(packageName),
-            InstallNotifications.awaitingConfirm(context, displayName, confirmIntent, icon),
+            InstallNotifications.awaitingConfirm(
+                context,
+                realName(packageName, displayName, downloads.states.value[packageName]?.source),
+                confirmIntent,
+                icon,
+            ),
         )
         return false
     }
@@ -123,7 +146,7 @@ internal class InstallNotificationCoordinator(
     private suspend fun onStates(states: Map<String, DownloadState>) {
         states.forEach { (packageName, state) ->
             val previous = tracked[packageName]?.phase
-            tracked[packageName] = TrackedTask(state.displayName, state.phase, state.icon)
+            tracked[packageName] = TrackedTask(realName(packageName, state.displayName, state.source), state.phase, state.icon)
             if (previous != state.phase) {
                 onPhaseTransition(packageName, previous, state)
             }
@@ -149,10 +172,11 @@ internal class InstallNotificationCoordinator(
                 state.errorMessage.isNotBlank() -> postFailure(state)
                 previous == DownloadPhase.QUEUED || previous == DownloadPhase.DOWNLOADING -> {
                     val icon = icons.remoteIcon(state.icon)
+                    val name = tracked[packageName]?.displayName ?: state.displayName
                     postAlert(
                         packageName = packageName,
-                        notification = InstallNotifications.downloadComplete(context, state.displayName, icon),
-                        islandTitle = state.displayName,
+                        notification = InstallNotifications.downloadComplete(context, name, icon),
+                        islandTitle = name,
                         islandContent = context.getString(R.string.notif_download_complete),
                         icon = icon,
                         dismissAfterSeconds = InstallNotifications.AUTO_HIDE_SECONDS,
@@ -196,17 +220,51 @@ internal class InstallNotificationCoordinator(
             return
         }
         val icon = icons.remoteIcon(state.icon)
+        val name = tracked[state.packageName]?.displayName ?: state.displayName
         postAlert(
             packageName = state.packageName,
-            notification = InstallNotifications.installFailed(context, state.displayName, state.errorMessage, icon),
-            islandTitle = state.displayName,
+            notification = InstallNotifications.installFailed(context, name, state.errorMessage, icon),
+            islandTitle = name,
             islandContent = state.errorMessage.ifBlank { context.getString(R.string.notif_install_failed) },
             icon = icon,
         )
     }
 
+    /**
+     * 盯着「下载通知」档位：切完立刻按新档位重发一次，不用等下一次进度回调，
+     * 也不用重启应用。（旧版只在有状态变化时才刷新，所以会出现「切了没反应」。）
+     */
+    private fun watchNotificationStyle() {
+        scope.launch {
+            var last = notificationStyle()
+            while (true) {
+                delay(STYLE_WATCH_INTERVAL_MS)
+                val next = runCatching { notificationStyle() }.getOrDefault(last)
+                if (next == last) continue
+                last = next
+                lastSignature = null
+                lastPhaseSignature = null
+                lastOngoingTime = 0L
+                updateOngoing(
+                    downloads.states.value.values
+                        .filter { it.phase in ActivePhases }
+                        .sortedBy { it.packageName },
+                )
+            }
+        }
+    }
+
+    /** 设置里的「下载通知」四档：off / normal / live / island。 */
+    private suspend fun notificationStyle(): String =
+        runCatching { preferences.downloadNotificationStyle() }.getOrDefault("island")
+
     private suspend fun updateOngoing(active: List<DownloadState>) {
         if (!foregroundActive || active.isEmpty()) return
+        val style = notificationStyle()
+        if (style == "off") {
+            notificationManager.cancel(InstallNotifications.ONGOING_ID)
+            return
+        }
         val signature = active.map { "${it.packageName}:${it.phase}:${it.progress}" }
         if (signature == lastSignature) return
         val phaseSignature = active.map { "${it.packageName}:${it.phase}" }
@@ -216,11 +274,13 @@ internal class InstallNotificationCoordinator(
         lastPhaseSignature = phaseSignature
         lastOngoingTime = now
 
-        val content = InstallNotifications.ongoingContent(context, active)
+        val content = InstallNotifications.ongoingContent(context, active) {
+            tracked[it.packageName]?.displayName ?: it.displayName
+        }
         val appIcon = content.iconUrl.takeIf { it.isNotBlank() }?.let { icons.remoteIcon(it) }
-        val focus = resolveFocus()
-        // 挂岛载荷时不申请 Live Update 晋升，二者互斥
-        val builder = InstallNotifications.ongoing(context, content, appIcon, promoteLiveUpdate = focus == null)
+        val focus = if (style == "island") resolveFocus() else null
+        // 只有「实时通知」档才申请 Live Update 晋升；挂岛载荷时二者互斥
+        val builder = InstallNotifications.ongoing(context, content, appIcon, promoteLiveUpdate = style == "live")
         if (focus != null) {
             builder.addExtras(
                 MiIslandExtras.build(
@@ -232,13 +292,19 @@ internal class InstallNotificationCoordinator(
                     float = false,
                     appIcon = appIcon,
                     capsuleStatus = content.capsuleStatus,
+                    installing = content.installing,
                     actions = content.cancelablePackage?.let { packageName ->
                         listOf(
+                            MiIslandExtras.Action(
+                                key = "miui_action_pause",
+                                title = context.getString(R.string.notif_action_pause),
+                                pendingIntent = InstallNotifications.pauseIntent(context, packageName),
+                            ),
                             MiIslandExtras.Action(
                                 key = "miui_action_cancel",
                                 title = context.getString(R.string.notif_action_cancel),
                                 pendingIntent = InstallNotifications.cancelIntent(context, packageName),
-                            )
+                            ),
                         )
                     } ?: emptyList(),
                 )
@@ -285,6 +351,8 @@ internal class InstallNotificationCoordinator(
     // 协议支持即挂载荷（xmsf 不接受会自动忽略、降级普通通知，故 Xposed 解限也能渲染）；
     // needsBypass 仅决定是否触发断网旁路：已授权不需要，未授权时才在有旁路时强制放行。
     private suspend fun resolveFocus(): FocusDecision? {
+        // 档位为「小米超级岛」时才探测并挂载荷；其它档一律走普通/实时通知
+        if (notificationStyle() != "island") return null
         if (!runCatching { preferences.xiaomiIslandOptimizationEnabled() }.getOrDefault(false)) return null
         val snapshot = capabilitySnapshot ?: HyperOsFocusCapability.probe(context).also {
             capabilitySnapshot = it
@@ -306,6 +374,8 @@ internal class InstallNotificationCoordinator(
 
     private companion object {
         const val ONGOING_MIN_INTERVAL_MS = 500L
+        /** 档位轮询间隔：只读一次小体积偏好，2 秒足够灵敏也不费电。 */
+        const val STYLE_WATCH_INTERVAL_MS = 2_000L
         const val CAPABILITY_PROBE_INTERVAL_MS = 60_000L
         val ActivePhases = setOf(DownloadPhase.QUEUED, DownloadPhase.DOWNLOADING, DownloadPhase.INSTALLING)
         val PendingResultPhases = setOf(DownloadPhase.INSTALLING, DownloadPhase.AWAITING_USER_ACTION)

@@ -28,6 +28,12 @@ data class MarketAppInfo(
     val source: AppSource = AppSource.XIAOMI,
     val category: String = "",
     val downloadCount: Long = 0L,
+    /** 列表用的简介（LSPosed 模块仓库的 summary）。 */
+    val summaryText: String = "",
+    /** 列表用的更新时间文本，如「3天前」。 */
+    val releaseTimeText: String = "",
+    /** 本地真实应用名（PackageManager label）；显示层按「获取真实应用名」开关在它与 [displayName] 间即时选用。 */
+    val localLabel: String = "",
 )
 
 fun MarketAppInfo.hasInstalledSplits(): Boolean =

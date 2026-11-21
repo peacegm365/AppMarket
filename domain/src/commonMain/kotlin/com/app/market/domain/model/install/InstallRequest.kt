@@ -13,4 +13,9 @@ data class InstallRequest(
     val sourceSavedPackageId: String? = null,
     val icon: String = "",
     val marketSource: AppSource? = null,
+    val changeLog: String = "",
+    val apkSize: Long = 0L,
+    val installedVersionName: String = "",
+    /** 「另存」目标文档 uri（ACTION_CREATE_DOCUMENT 返回）；非空时下载完成后把安装包写入该位置。 */
+    val saveUri: String? = null,
 )

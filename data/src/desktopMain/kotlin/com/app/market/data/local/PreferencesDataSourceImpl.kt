@@ -38,6 +38,19 @@ internal class PreferencesDataSourceImpl : PreferencesDataSource {
         }
     }
 
+    override suspend fun clearNamespace(namespace: String) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            val next = Properties().also { it.putAll(values) }
+            next.stringPropertyNames().filter { it.startsWith("$namespace.") }.forEach { next.remove(it) }
+            persist(next)
+            synchronized(stateLock) {
+                values = next
+                stringStates.forEach { (key, state) -> if (key.namespace == namespace) state.value = null }
+                booleanStates.forEach { (key, state) -> if (key.namespace == namespace) state.value = key.default }
+            }
+        }
+    }
+
     override suspend fun update(namespace: String, changes: PreferenceChanges) = withContext(Dispatchers.IO) {
         changes.requireNamespace(namespace)
         if (changes.isEmpty) return@withContext

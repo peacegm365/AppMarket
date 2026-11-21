@@ -18,9 +18,11 @@ internal fun HttpClientConfig<*>.installSharedHttp() {
         storage = AcceptAllCookiesStorage()
     }
     install(HttpTimeout) {
-        requestTimeoutMillis = 60_000
-        connectTimeoutMillis = 15_000
-        socketTimeoutMillis = 30_000
+        // 之前 request 60s / connect 15s：一个卡死的请求就能吃掉整个更新检查窗口，
+        // 表现成「某来源总是超时」。收紧到 30s / 10s，失败得更快、也更容易重试成功。
+        requestTimeoutMillis = 30_000
+        connectTimeoutMillis = 10_000
+        socketTimeoutMillis = 20_000
     }
     // 地铁/电梯里的一次瞬断不该把整次检查更新或搜索打成失败态；这些请求语义上都是幂等的
     install(HttpRequestRetry) {

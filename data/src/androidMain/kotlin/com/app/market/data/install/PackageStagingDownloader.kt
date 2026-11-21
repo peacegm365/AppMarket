@@ -25,7 +25,7 @@ internal class PackageStagingDownloader(
         // 分母按 artifact 维护而非一次算死：增量降级为全量时对应项会从补丁大小切到整包大小
         val totals = LongArray(request.artifacts.size) { request.artifacts[it].transferSize }
         val transferred = LongArray(request.artifacts.size)
-        var lastProgressMarker = -1L
+        var lastProgressAt = 0L
         val staged = request.artifacts.mapIndexed { index, artifact ->
             if (artifact.source is InstallSource.Local) return@mapIndexed null
             val target = staging.artifactFile(request.id, index, artifact.name)
@@ -33,14 +33,12 @@ internal class PackageStagingDownloader(
                 transferred[index] = bytes
                 totals[index] = artifactTotal
                 val completed = transferred.sum()
-                val total = if (totals.all { it > 0L }) totals.sum() else -1L
-                val marker = if (total > 0L) {
-                    (completed.coerceAtMost(total) * 100L) / total
-                } else {
-                    completed / PROGRESS_STEP_BYTES
-                }
-                if (marker != lastProgressMarker) {
-                    lastProgressMarker = marker
+                // 有 artifact 大小未定时先用已知项之和当分母（宁可跑得快也不冻结），全部确定后自然修正
+                val total = totals.filter { it > 0L }.sum().takeIf { it > 0L } ?: -1L
+                // 时间节流：固定频率上报，任何大小的包都实时显示进度
+                val now = System.currentTimeMillis()
+                if (now - lastProgressAt >= 150L) {
+                    lastProgressAt = now
                     onProgress(completed, total)
                 }
             }
@@ -76,9 +74,11 @@ internal class PackageStagingDownloader(
             )
         }
         if (request.versionCode > 0L && actualVersion != request.versionCode) {
-            throw InstallPipelineException(
-                InstallFailureCode.INTEGRITY,
-                "Downloaded version mismatch: expected ${request.versionCode}, got $actualVersion",
+            // 版本号不一致不拦：更新条目里的 versionCode 可能是推断值（LSPosed 等来源
+            // 不下载 APK 读真实值），与 APK 实际值不同属正常；包名校验已通过，
+            // 以 APK 实际版本为准继续安装。
+            com.app.market.domain.diagnostic.AppLog.log(
+                "InstallVerify: version differs (expected ${request.versionCode}, got $actualVersion), continue",
             )
         }
     }

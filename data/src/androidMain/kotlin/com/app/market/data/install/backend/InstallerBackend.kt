@@ -6,7 +6,7 @@ import java.io.Closeable
 
 internal interface InstallerBackend {
     val mode: InstallerMode
-    suspend fun open(): PackageInstallerAccess
+    suspend fun open(installerPackageName: String? = null): PackageInstallerAccess
 }
 
 internal class PackageInstallerAccess(
@@ -23,11 +23,15 @@ internal class InstallerBackendSelector(
     standard: StandardInstallerBackend,
     root: RootInstallerBackend,
     shizuku: ShizukuInstallerBackend,
+    dhizuku: DhizukuInstallerBackend,
 ) {
-    private val backends = listOf(standard, root, shizuku).associateBy { it.mode }
+    private val backends = listOf(standard, root, shizuku, dhizuku).associateBy { it.mode }
 
     fun get(mode: InstallerMode): InstallerBackend =
-        requireNotNull(backends[mode]) { "No installer backend registered for $mode" }
+        // 系统权限静默安装复用标准安装的会话通道（自身持有 INSTALL_PACKAGES 时系统会静默装）
+        backends[mode] ?: requireNotNull(backends[InstallerMode.STANDARD]) {
+            "No installer backend registered for $mode"
+        }
 }
 
 internal const val XIAOMI_MARKET_PACKAGE_NAME = "com.xiaomi.market"

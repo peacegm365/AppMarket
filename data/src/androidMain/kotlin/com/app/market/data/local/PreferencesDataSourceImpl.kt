@@ -13,6 +13,7 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import com.app.market.data.platform.debugLog
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
@@ -47,6 +48,13 @@ internal class PreferencesDataSourceImpl(private val context: android.content.Co
 
     override fun observe(key: BooleanPreferenceKey): Flow<Boolean> =
         data(key.namespace).map { it[booleanPreferencesKey(key.name)] ?: key.default }
+
+    override suspend fun readNullable(key: BooleanPreferenceKey): Boolean? =
+        data(key.namespace)
+            .map { it[booleanPreferencesKey(key.name)] }
+            .first()
+
+    override suspend fun clearNamespace(namespace: String) { store(namespace).edit { it.clear() } }
 
     override suspend fun update(namespace: String, changes: PreferenceChanges) {
         changes.requireNamespace(namespace)
